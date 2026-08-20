@@ -1,0 +1,180 @@
+{
+    "pdf_info": [
+        {
+            "para_blocks": [
+                {
+                    "type": "text",
+                    "lines": [
+                        {
+                            "spans": [
+                                {
+                                    "type": "text",
+                                    "content": "问题1逐包裹结果填写说明",
+                                    "style": [
+                                        "bold"
+                                    ]
+                                }
+                            ]
+                        }
+                    ],
+                    "index": 0
+                },
+                {
+                    "type": "table",
+                    "blocks": [
+                        {
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "type": "table",
+                                            "html": "<table><tr><td><p><strong>核心原则：</strong>每个包裹占一行。模板已预置全部 1998 个包裹及其基本属性，只填写黄色区域；不要删除、增加或合并数据行，也不要修改工作表名称和列名。</p></td></tr></table>"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "index": 1,
+                            "type": "table_body"
+                        }
+                    ],
+                    "index": 1
+                },
+                {
+                    "type": "title",
+                    "lines": [
+                        {
+                            "spans": [
+                                {
+                                    "type": "text",
+                                    "content": "一、填写前须知",
+                                    "style": [
+                                        "bold"
+                                    ]
+                                }
+                            ]
+                        }
+                    ],
+                    "index": 2,
+                    "is_numbered_style": false,
+                    "level": 1
+                },
+                {
+                    "type": "list",
+                    "attribute": "unordered",
+                    "ilevel": 0,
+                    "blocks": [
+                        {
+                            "type": "text",
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "type": "text",
+                                            "content": "A 类包裹每件 1 kg，B 类包裹每件 5 kg。包裹编号、需求点编号、包裹类型和重量已经给定，不应改动。"
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "text",
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "type": "text",
+                                            "content": "所有时刻均以主干运输开始时刻 t=0 为起点，单位为小时；建议至少保留 4 位小数。"
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "text",
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "type": "text",
+                                            "content": "同一主干车辆运输任务、同一运输无人机任务在多行中重复出现时，其车辆、离开物流中心时刻、到货时刻、起飞时刻、返回时刻、总载重和总航程必须保持一致。"
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "text",
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "type": "text",
+                                            "content": "问题一仍受无人机单次运输 40 km 航程限制；仅忽略充电时间和费用，不忽略飞行时间、设备占用和主干运输时间。"
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "text",
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "type": "text",
+                                            "content": "完工时间取所有包裹送达时刻的最大值，不是最后一架无人机的返回时刻。"
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ],
+                    "index": 3
+                },
+                {
+                    "type": "title",
+                    "lines": [
+                        {
+                            "spans": [
+                                {
+                                    "type": "text",
+                                    "content": "二、各列填写说明",
+                                    "style": [
+                                        "bold"
+                                    ]
+                                }
+                            ]
+                        }
+                    ],
+                    "index": 4,
+                    "is_numbered_style": false,
+                    "level": 1
+                },
+                {
+                    "type": "table",
+                    "blocks": [
+                        {
+                            "lines": [
+                                {
+                                    "spans": [
+                                        {
+                                            "type": "table",
+                                            "html": "<table><thead><tr><th><p><strong>列名</strong></p></th><th><p><strong>填写内容</strong></p></th><th><p><strong>格式或示例</strong></p></th><th><p><strong>备注</strong></p></th></tr></thead><tbody><tr><td><p><strong>包裹编号</strong></p></td><td><p>模板预置的唯一编号。</p></td><td><p>D0001-A001</p></td><td><p>已填写</p></td></tr><tr><td><p><strong>需求点编号</strong></p></td><td><p>该包裹对应的需求点。</p></td><td><p>D0001</p></td><td><p>已填写</p></td></tr><tr><td><p><strong>包裹类型</strong></p></td><td><p>A类或B类。</p></td><td><p>A类</p></td><td><p>已填写</p></td></tr><tr><td><p><strong>包裹重量(kg)</strong></p></td><td><p>单个包裹重量。</p></td><td><p>1 或 5</p></td><td><p>已填写</p></td></tr><tr><td><p><strong>服务物流点编号</strong></p></td><td><p>负责末端配送的物流点。</p></td><td><p>P02</p></td><td><p>编号规范：P01～P22</p></td></tr><tr><td><p><strong>主干车辆编号</strong></p></td><td><p>将该包裹运至物流点的车辆。</p></td><td><p>V01</p></td><td><p>编号规范：V01～V06</p></td></tr><tr><td><p><strong>包裹离开物流中心时刻(h)</strong></p></td><td><p>主干车辆携带该包裹离开初始物流中心的时刻。</p></td><td><p>0.0000</p></td><td></td></tr><tr><td><p><strong>货物到达物流点时刻(h)</strong></p></td><td><p>主干车辆携带该包裹到达服务物流点的时刻。</p></td><td><p>1.9500</p></td><td></td></tr><tr><td><p><strong>无人机编号</strong></p></td><td><p>执行末端配送的无人机。</p></td><td><p>P02-D01</p></td><td><p>编号规范：Pxx-D01或Pxx-D02；Pxx与服务物流点一致</p></td></tr><tr><td><p><strong>运输无人机起飞时刻(h)</strong></p></td><td><p>无人机携带本次运输全部包裹离开物流点的时刻。</p></td><td><p>3.4568</p></td><td></td></tr><tr><td><p><strong>本包裹送达时刻(h)</strong></p></td><td><p>无人机到达该包裹需求点的时刻。</p></td><td><p>3.7548</p></td><td></td></tr><tr><td><p><strong>运输无人机返回时刻(h)</strong></p></td><td><p>无人机完成本次运输并回到出发物流点的时刻。</p></td><td><p>3.9783</p></td><td></td></tr><tr><td><p><strong>运输无人机总载重(kg)</strong></p></td><td><p>起飞时本次运输携带的所有包裹重量之和。</p></td><td><p>6</p></td><td></td></tr><tr><td><p><strong>运输无人机总航程(km)</strong></p></td><td><p>物流点出发、依次完成配送并返回物流点的闭合路线总长度。</p></td><td><p>17.881</p></td><td></td></tr></tbody></table>"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "index": 5,
+                            "type": "table_body"
+                        }
+                    ],
+                    "index": 5
+                }
+            ],
+            "discarded_blocks": [],
+            "page_idx": 0
+        }
+    ],
+    "_backend": "office",
+    "_version_name": "3.4.4"
+}

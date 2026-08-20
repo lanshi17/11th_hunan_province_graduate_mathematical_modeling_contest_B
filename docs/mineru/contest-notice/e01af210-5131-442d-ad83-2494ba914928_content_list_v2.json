@@ -1,0 +1,981 @@
+[
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "关于举办第十一届湖南省研究生数学建模竞赛的通知"
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                258,
+                87,
+                771,
+                155
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "有关研究生培养单位："
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                196,
+                401,
+                218
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "为进一步提升研究生运用数学模型与信息技术解决工程、经济、社会等实际问题的能力，强化实践创新意识，促进高层次应用型人才培养，经省教育厅同意，决定举办第十一届湖南省研究生数学建模竞赛。现将赛事有关事项通知如下："
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                229,
+                850,
+                353
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "一、竞赛组织"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                200,
+                361,
+                369,
+                385
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "本届竞赛由湖南省教育厅主办，湖南人文科技学院承办。竞赛组委会办公室设在湖南人文科技学院数学与数据科学学院。"
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                395,
+                847,
+                485
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "二、参赛对象与要求"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                196,
+                494,
+                436,
+                518
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "参赛对象为省内研究生培养单位的在籍研究生。竞赛以团队形式参赛，专业不限，鼓励跨院系、跨专业组队，但不得跨单位组队，每队成员不超过3人。同一单位参赛队伍数限定为2-30支。"
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                527,
+                850,
+                651
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "三、奖项设置"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                198,
+                659,
+                361,
+                684
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "竞赛设一、二、三等奖，获奖比例分别为有效参赛队伍总数的 10%、15% 和 25%。获一等奖团队的指导教师授予“优秀指导教师奖”。优秀组织奖原则上不超过 4 个单位。"
+                    }
+                ]
+            },
+            "bbox": [
+                144,
+                695,
+                850,
+                785
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "四、竞赛安排"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                200,
+                794,
+                361,
+                816
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. 报名截止时间"
+                    }
+                ]
+            },
+            "bbox": [
+                203,
+                827,
+                396,
+                850
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2026年8月19日18:00。"
+                    }
+                ]
+            },
+            "bbox": [
+                201,
+                860,
+                457,
+                884
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "2. 报名方式"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                200,
+                93,
+                334,
+                116
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "本次竞赛不接受个人直接报名。各培养单位须先行组织校内选拔赛，遴选优秀团队参加省赛，并于报名截止日期前，将《第十一届湖南省研究生数学建模竞赛报名表》（见附件1）的扫描PDF版及原始word版一并发送至组委会邮箱。"
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                127,
+                848,
+                250
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "3. 竞赛时间"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                203,
+                260,
+                342,
+                282
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2026年8月20日8:00-8月24日12:00。"
+                    }
+                ]
+            },
+            "bbox": [
+                201,
+                293,
+                613,
+                316
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "4. 具体安排"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                200,
+                326,
+                339,
+                349
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(1) 赛题于 2026 年 8 月 20 日 8:00 通过湖南人文科技学院数学与数据科学学院官网 (https://www.huhst.edu.cn/sxx/xkjs/sxjmjs.htm) 及领队教师工作微信群同步发布。"
+                    }
+                ]
+            },
+            "bbox": [
+                144,
+                360,
+                863,
+                450
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "（2）各参赛队伍应恪守学术道德规范，签署《参赛承诺书》（见附件2），并于8月24日12:00前参赛承诺书PDF版、参赛论文PDF版及支撑材料（以zip格式压缩）一并提交至所在培养单位，由领队教师统一发送至组委会邮箱。参赛论文及支撑材料将依次通过自建库查重和知网查重，经认定存在违规行为的队伍，将被取消参赛资格并予以通报。论文附录中须包含主要程序代码，否则按违规论文处理。"
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                458,
+                853,
+                683
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "（3）评审工作于8月底前完成。评审专家由湖南省内数学学科（专业）领域从事教学或科研工作的教授（或具有博士学位的副教授）组成。"
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                692,
+                853,
+                783
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "根据评审得分排序，排名前15%的队伍确定为一等奖候选队，进入现场答辩评审环节；其余获奖队伍依据得分排名，按比例分别评定为二等奖和三等奖。一等奖候选队参加现场决赛答辩, 根据最终成绩排名, 前2/3评定为一等奖, 后1/3评定为二等奖。最终, 一、二、三等奖获奖队伍数分别占有效参赛队伍总数的  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "10 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": " 、  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "15 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": " 和  "
+                    },
+                    {
+                        "type": "equation_inline",
+                        "content": "20 \\%"
+                    },
+                    {
+                        "type": "text",
+                        "content": " 。"
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                791,
+                853,
+                883
+            ]
+        }
+    ],
+    [
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": []
+            },
+            "bbox": [
+                171,
+                90,
+                836,
+                176
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "五、其他事项"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                221,
+                186,
+                374,
+                207
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "各培养单位要做好赛事的宣传动员、组织管理、选拔推荐相关工作，并为各参赛队伍安排指导教师（或教师组）进行赛前培训与辅导，提升参赛作品质量。"
+                    }
+                ]
+            },
+            "bbox": [
+                171,
+                217,
+                836,
+                302
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "联系人：刘成志，18373822746"
+                    }
+                ]
+            },
+            "bbox": [
+                221,
+                312,
+                564,
+                334
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "组委会邮箱：346832926@qq.com"
+                    }
+                ]
+            },
+            "bbox": [
+                223,
+                344,
+                576,
+                365
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "通讯地址：湖南人文科技学院数学与数据科学学院"
+                    }
+                ]
+            },
+            "bbox": [
+                221,
+                375,
+                771,
+                397
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "附件："
+                    }
+                ]
+            },
+            "bbox": [
+                221,
+                407,
+                289,
+                428
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "1. 第十一届湖南省研究生数学建模竞赛报名表"
+                    }
+                ]
+            },
+            "bbox": [
+                221,
+                438,
+                721,
+                460
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2. 第十一届湖南省研究生数学建模竞赛承诺书"
+                    }
+                ]
+            },
+            "bbox": [
+                220,
+                469,
+                719,
+                492
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "第十一届湖南省研究生数学建模竞赛组委会"
+                    }
+                ]
+            },
+            "bbox": [
+                357,
+                596,
+                830,
+                619
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "湖南人文科技学院（代章）"
+                    }
+                ]
+            },
+            "bbox": [
+                455,
+                627,
+                744,
+                650
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2026年6月26日"
+                    }
+                ]
+            },
+            "bbox": [
+                529,
+                659,
+                692,
+                692
+            ]
+        },
+        {
+            "type": "image",
+            "content": {
+                "image_source": {
+                    "path": "images/78492cbf9e80df164d27cb7b9977f09e2e11e5455e630f42d2a56e25b2b9c17a.jpg"
+                },
+                "content": "",
+                "image_caption": [],
+                "image_footnote": []
+            },
+            "sub_type": "seal",
+            "bbox": [
+                502,
+                549,
+                715,
+                695
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "附件 1:"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                147,
+                85,
+                216,
+                102
+            ]
+        },
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "第十一届湖南省研究生数学建模竞赛报名表"
+                    }
+                ],
+                "level": 2
+            },
+            "bbox": [
+                206,
+                109,
+                789,
+                134
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "单位名称(公章):"
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                160,
+                275,
+                175
+            ]
+        },
+        {
+            "type": "table",
+            "content": {
+                "image_source": {
+                    "path": "images/799ac43f5d2ddba7bb0229b62169a64859687010506a8933bbb3ce6a4b92801e.jpg"
+                },
+                "table_caption": [],
+                "table_footnote": [],
+                "html": "<table><tr><td colspan=\"2\">领队老师姓名</td><td colspan=\"2\"></td><td colspan=\"2\">联系电话</td><td colspan=\"2\"></td></tr><tr><td colspan=\"2\">微信号码</td><td colspan=\"2\"></td><td colspan=\"2\">电子邮箱</td><td colspan=\"2\"></td></tr><tr><td>参赛队序号</td><td>队员列表</td><td>姓名</td><td colspan=\"2\">身份证号</td><td colspan=\"2\">专业</td><td>联系电话</td></tr><tr><td rowspan=\"3\">1</td><td>队员一</td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td>队员二</td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td>队员三</td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td rowspan=\"3\">2</td><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td rowspan=\"3\">3</td><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td rowspan=\"3\"></td><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td rowspan=\"3\"></td><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr><tr><td></td><td></td><td colspan=\"2\"></td><td colspan=\"2\"></td><td></td></tr></table>",
+                "table_type": "complex_table",
+                "table_nest_level": 1
+            },
+            "bbox": [
+                102,
+                185,
+                894,
+                807
+            ]
+        }
+    ],
+    [
+        {
+            "type": "title",
+            "content": {
+                "title_content": [
+                    {
+                        "type": "text",
+                        "content": "第十一届湖南省研究生数学建模竞赛承诺书"
+                    }
+                ],
+                "level": 1
+            },
+            "bbox": [
+                200,
+                152,
+                784,
+                177
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们仔细阅读了湖南省高校研究生数学建模竞赛的竞赛规则。"
+                    }
+                ]
+            },
+            "bbox": [
+                149,
+                205,
+                623,
+                222
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们完全明白，在竞赛开始后参赛队员不能以任何方式（包括电话、电子邮件、网上咨询等）与队外的任何人（包括指导教师）研究、讨论与赛题有关的问题。"
+                    }
+                ]
+            },
+            "bbox": [
+                114,
+                236,
+                870,
+                279
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们知道，抄袭别人的成果是违反竞赛规则的，如果引用别人的成果或其他公开的资料（包括网上查到的资料），必须按照规定的参考文献的表述方式在正文引用处和参考文献中明确列出。"
+                    }
+                ]
+            },
+            "bbox": [
+                114,
+                294,
+                870,
+                336
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们完全清楚，在竞赛中必须合法合规地使用文献资料、软件工具和 AI 工具，不能有任何侵犯知识产权的行为。否则我们将失去评奖资格，并可能受到严肃处理。"
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                350,
+                872,
+                394
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们郑重承诺，严格遵守竞赛规则，以保证竞赛的公正、公平性。如有违反竞赛规则的行为，我们将受到严肃处理。"
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                407,
+                870,
+                450
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们授权湖南省研究生数学建模竞赛组委会，可将我们的论文以任何形式进行公开展示（包括进行网上公示，在书籍、期刊和其他媒体进行正式或非正式发表等）。"
+                    }
+                ]
+            },
+            "bbox": [
+                112,
+                464,
+                870,
+                508
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们参赛选择的题号是（从组委会提供的赛题中选择一项填写）："
+                    }
+                ]
+            },
+            "bbox": [
+                147,
+                521,
+                648,
+                538
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "我们的参赛编号（请填写完整参赛编号）："
+                    }
+                ]
+            },
+            "bbox": [
+                149,
+                552,
+                472,
+                568
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "所属学校（请填写完整的全名）："
+                    }
+                ]
+            },
+            "bbox": [
+                149,
+                583,
+                401,
+                599
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "参赛队员（打印后签名）：1."
+                    }
+                ]
+            },
+            "bbox": [
+                149,
+                615,
+                381,
+                630
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "2."
+                    }
+                ]
+            },
+            "bbox": [
+                361,
+                646,
+                379,
+                659
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "3."
+                    }
+                ]
+            },
+            "bbox": [
+                361,
+                678,
+                379,
+                690
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "指导教师或指导教师组负责人（打印后签名）："
+                    }
+                ]
+            },
+            "bbox": [
+                149,
+                707,
+                507,
+                722
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "日期： 年 月 日"
+                    }
+                ]
+            },
+            "bbox": [
+                680,
+                739,
+                870,
+                753
+            ]
+        },
+        {
+            "type": "paragraph",
+            "content": {
+                "paragraph_content": [
+                    {
+                        "type": "text",
+                        "content": "(请勿改动此页内容和格式。以上内容请仔细核对，如填写错误，论文可能被取消评奖资格。)"
+                    }
+                ]
+            },
+            "bbox": [
+                122,
+                892,
+                855,
+                909
+            ]
+        },
+        {
+            "type": "page_header",
+            "content": {
+                "page_header_content": [
+                    {
+                        "type": "text",
+                        "content": "附件 2:"
+                    }
+                ]
+            },
+            "bbox": [
+                127,
+                111,
+                196,
+                129
+            ]
+        }
+    ]
+]
