@@ -17,5 +17,6 @@
 数据：data/raw/problem-B/*.csv 由官方附件转换（UTF-8）。
 结果：src/outputs/q1…q5 与 src/outputs/deepen/。
 论文源：paper/main.tex（XeLaTeX）。
+绘图：SciencePlots + XeLaTeX（需 TeX Live，含 ctex）。
 
 求解器：Clarabel（Q1 QP）、HiGHS（Q3/Q4 MILP）。
