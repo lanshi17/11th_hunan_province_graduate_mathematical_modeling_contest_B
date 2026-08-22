@@ -1,12 +1,14 @@
 """问题一:多源能源数据一致性校正与可信性评价。
 
-方法:守恒约束下的加权最小二乘数据调和(Crowe 1996; Narasimhan & Jordache
-1999),即面向能量平衡的广义 WLS 状态估计(Schweppe 1970; Abur 2004)。
-异常识别用标准化残差;通道损耗率由调和后送/受端电量估计,并与工程值
-迭代一致;观测影响度用 KKT 灵敏度的数值近似(留一扰动重解)。
+主方法是守恒约束下的标准化 Huber 数据调和；加权最小二乘(WLS)保留为
+对照。Huber 在小残差区与 WLS 一致，在粗差区转为线性增长，从而避免
+少数异常观测支配全网校正。通道工程线损只作为年度聚合软先验进入一次
+稳定凸优化，求解后再由年度送/受端调和电量估计线损率，不再做会漂移的
+固定次数 eta 回灌。
 
 平衡口径:入流按受端计量(过网损耗已扣),出流按送端计量,通道损耗
 "落在线上";区内输配损耗 L_{i,t} 为非负自由变量,先验 5% × 终端用电。
+影响度采用同一算法下的对称有限差分，并分别报告用电与线损无量纲弹性。
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ import pandas as pd
 
 from ..common import data_io
 from ..common.paths import CHANNELS, MONTHS, REGIONS, SECTORS, SOURCES, out_dir
+from ..common.plotting import savefig as save_fig
 from ..common.plotting import setup as plot_setup
 
 OUT = out_dir("q1")
@@ -35,6 +38,9 @@ SIG = {
 LOSS_PRIOR_RATE = 0.05          # 区内输配损耗先验比例
 LOSS_PRIOR_REL = 0.5            # 先验松弛度(σ = 0.5×先验值)
 ETA_PRIOR_REL, ETA_PRIOR_FLOOR = 0.010, 0.3
+DEFAULT_METHOD = "huber"
+HUBER_DELTA = 1.5               # 作用于已除以 σ 的标准化残差
+INFLUENCE_REL_STEP = 0.05
 
 
 def _sigma(obs: np.ndarray, key: str) -> np.ndarray:
@@ -185,15 +191,48 @@ def _raw_balance_residual(ds: Dataset) -> tuple[np.ndarray, np.ndarray]:
 
 
 class ReconcileResult:
-    def __init__(self, gen, imp, dem, loss, sent, recv, eta_hat, obj, n_obs):
+    def __init__(self, gen, imp, dem, loss, sent, recv, eta_hat, obj, n_obs,
+                 *, eta_identifiable, method, huber_delta, n_prior,
+                 data_residuals, prior_residuals, status):
         self.gen, self.imp, self.dem, self.loss = gen, imp, dem, loss
         self.sent, self.recv = sent, recv
         self.eta_hat, self.obj, self.n_obs = eta_hat, obj, n_obs
+        self.eta_identifiable = np.asarray(eta_identifiable, dtype=bool)
+        self.method = method
+        self.huber_delta = float(huber_delta)
+        self.n_prior = int(n_prior)
+        self.data_residuals = np.asarray(data_residuals, dtype=float)
+        self.prior_residuals = np.asarray(prior_residuals, dtype=float)
+        self.standardized_data_rss = float(self.data_residuals @ self.data_residuals)
+        self.standardized_prior_rss = float(
+            self.prior_residuals @ self.prior_residuals)
+        self.robust_data_objective = _huber_value(
+            self.data_residuals, self.huber_delta)
+        self.status = status
+
+
+def _huber_value(residual: np.ndarray, delta: float) -> float:
+    """与 cvxpy.huber 一致的数值目标:小残差 r²,大残差线性。"""
+    a = np.abs(np.asarray(residual, dtype=float))
+    return float(np.where(a <= delta, a ** 2,
+                          2 * delta * a - delta ** 2).sum())
 
 
 def reconcile(ds: Dataset, override: dict | None = None,
-              n_iter: int = 2) -> ReconcileResult:
-    """WLS 数据调和。override: {(table, key): new_obs} 用于影响度扰动。"""
+              method: str = DEFAULT_METHOD,
+              huber_delta: float = HUBER_DELTA,
+              n_iter: int | None = None) -> ReconcileResult:
+    """单次凸数据调和。
+
+    ``override`` 形如 ``{(table, key): new_obs}``，供有限差分与污染试验使用。
+    ``n_iter`` 仅为旧调用兼容参数，已不参与计算；当前模型不再回灌 eta。
+    """
+    del n_iter
+    method = method.lower()
+    if method not in {"huber", "wls"}:
+        raise ValueError(f"unknown reconciliation method: {method}")
+    if huber_delta <= 0:
+        raise ValueError("huber_delta must be positive")
     gen_o, imp_o = ds.gen_obs.copy(), ds.imp_obs.copy()
     dem_o, tot_o = ds.dem_obs.copy(), ds.tot_obs.copy()
     sent_o, recv_o = ds.sent_obs.copy(), ds.recv_obs.copy()
@@ -216,17 +255,12 @@ def reconcile(ds: Dataset, override: dict | None = None,
             elif tab == "flow_recv":
                 recv_o[key[0]] = val
 
-    eta = ds.eta_eng.copy()
-    result = None
-    for _ in range(n_iter):
-        result = _solve_once(ds, gen_o, imp_o, dem_o, tot_o, sent_o, recv_o,
-                             ann, aux_ch, eta)
-        eta = result.eta_hat
-    return result
+    return _solve_once(ds, gen_o, imp_o, dem_o, tot_o, sent_o, recv_o,
+                       ann, aux_ch, method, huber_delta)
 
 
 def _solve_once(ds, gen_o, imp_o, dem_o, tot_o, sent_o, recv_o,
-                ann, aux_ch, eta) -> ReconcileResult:
+                ann, aux_ch, method, huber_delta) -> ReconcileResult:
     gen = cp.Variable((96, 4), nonneg=True)
     imp = cp.Variable(96, nonneg=True)
     dem = cp.Variable((96, 4), nonneg=True)
@@ -234,27 +268,39 @@ def _solve_once(ds, gen_o, imp_o, dem_o, tot_o, sent_o, recv_o,
     sent = cp.Variable(132, nonneg=True)
     recv = cp.Variable(132, nonneg=True)
 
-    terms, n_obs = [], 0
+    data_terms, prior_terms = [], []
+    data_residual_exprs, prior_residual_exprs = [], []
+    n_obs = 0
 
-    def sq(expr_minus_obs_over_sigma):
-        terms.append(cp.sum_squares(expr_minus_obs_over_sigma))
+    def data_term(standardized_residual):
+        data_residual_exprs.append(standardized_residual)
+        if method == "huber":
+            data_terms.append(cp.sum(cp.huber(
+                standardized_residual, M=huber_delta)))
+        else:
+            data_terms.append(cp.sum_squares(standardized_residual))
+
+    def prior_term(standardized_residual):
+        prior_residual_exprs.append(standardized_residual)
+        prior_terms.append(cp.sum_squares(standardized_residual))
 
     # ---- 月度观测项(缺失掩码)----
     for arr_o, var, key in [(gen_o, gen, "gen"), (dem_o, dem, "dem")]:
         mask = ~np.isnan(arr_o)
         sig = _sigma(arr_o, key)
-        sq(cp.multiply(1 / sig[mask], var[mask] - arr_o[mask]))
+        data_term(cp.multiply(1 / sig[mask], var[mask] - arr_o[mask]))
         n_obs += int(mask.sum())
     m_imp = ~np.isnan(imp_o)
-    sq(cp.multiply(1 / _sigma(imp_o, "imp")[m_imp], imp[m_imp] - imp_o[m_imp]))
+    data_term(cp.multiply(1 / _sigma(imp_o, "imp")[m_imp],
+                          imp[m_imp] - imp_o[m_imp]))
     n_obs += int(m_imp.sum())
     m_tot = ~np.isnan(tot_o)
     tot_expr = cp.sum(dem, axis=1)
-    sq(cp.multiply(1 / _sigma(tot_o, "demtot")[m_tot],
-                   tot_expr[m_tot] - tot_o[m_tot]))
+    data_term(cp.multiply(1 / _sigma(tot_o, "demtot")[m_tot],
+                          tot_expr[m_tot] - tot_o[m_tot]))
     n_obs += int(m_tot.sum())
-    sq(cp.multiply(1 / _sigma(sent_o, "flow"), sent - sent_o))
-    sq(cp.multiply(1 / _sigma(recv_o, "flow"), recv - recv_o))
+    data_term(cp.multiply(1 / _sigma(sent_o, "flow"), sent - sent_o))
+    data_term(cp.multiply(1 / _sigma(recv_o, "flow"), recv - recv_o))
     n_obs += 2 * 132
 
     # ---- 年度观测项(附件2A / 2B)----
@@ -266,27 +312,35 @@ def _solve_once(ds, gen_o, imp_o, dem_o, tot_o, sent_o, recv_o,
                            (cp.sum(tot_expr[ks]), "终端用电量"),
                            (cp.sum(dem[ks, 0]), "工业用电量")]:
             a = float(ann.loc[r, acol])
-            sq((expr - a) / _sigma(np.array([a]), "ann")[0])
+            data_term((expr - a) / _sigma(np.array([a]), "ann")[0])
             n_obs += 1
     for e in CHANNELS:
         js = ds.ch_rows[e]
         for expr, acol in [(cp.sum(sent[js]), "年度送端汇总"),
                            (cp.sum(recv[js]), "年度受端汇总")]:
             a = float(aux_ch.loc[e, acol])
-            sq((expr - a) / _sigma(np.array([a]), "ann_ch")[0])
+            data_term((expr - a) / _sigma(np.array([a]), "ann_ch")[0])
             n_obs += 1
 
-    # ---- 先验正则:通道损耗、区内损耗 ----
+    # ---- 先验正则:年度聚合通道损耗、区内损耗 ----
+    # 工程 eta 只锚定年度总送/受端关系。它不被更新后回灌，故目标始终固定。
+    # 无正流量通道不提供 eta 信息，跳过该先验并在输出中保留工程值。
     for e, ei in zip(CHANNELS, range(11)):
         js = ds.ch_rows[e]
-        sig = np.maximum(ETA_PRIOR_REL * np.nan_to_num(sent_o[js]),
-                         ETA_PRIOR_FLOOR)
-        terms.append(cp.sum_squares(
-            cp.multiply(1 / sig, recv[js] - (1 - eta[ei]) * sent[js])))
+        annual_sent_ref = float(np.nansum(ds.sent_obs[js]))
+        if annual_sent_ref <= 1.0:
+            continue
+        # 把月度关系误差聚合成年尺度：独立月误差按平方和传播，避免把
+        # ``1%×年度电量`` 误当成年度标准差而使工程先验弱化约 sqrt(12) 倍。
+        n_active = max(int((ds.sent_obs[js] > 1e-9).sum()), 1)
+        sig_eta = max(ETA_PRIOR_REL * annual_sent_ref / np.sqrt(n_active),
+                      ETA_PRIOR_FLOOR * np.sqrt(n_active))
+        prior_term((cp.sum(recv[js])
+                    - (1 - ds.eta_eng[ei]) * cp.sum(sent[js])) / sig_eta)
     loss_prior = LOSS_PRIOR_RATE * np.nan_to_num(tot_o)
     loss_prior[np.isnan(tot_o)] = LOSS_PRIOR_RATE * np.nanmean(tot_o)
     sig_l = np.maximum(LOSS_PRIOR_REL * loss_prior, 1.0)
-    terms.append(cp.sum_squares(cp.multiply(1 / sig_l, loss - loss_prior)))
+    prior_term(cp.multiply(1 / sig_l, loss - loss_prior))
 
     # ---- 硬约束 ----
     cons = [recv <= sent, sent <= ds.cap,
@@ -300,19 +354,40 @@ def _solve_once(ds, gen_o, imp_o, dem_o, tot_o, sent_o, recv_o,
         cons.append(cp.sum(gen[k]) + imp[k] + fin
                     == cp.sum(dem[k]) + fout + loss[k])
 
-    prob = cp.Problem(cp.Minimize(cp.sum(terms)), cons)
+    prob = cp.Problem(cp.Minimize(sum(data_terms + prior_terms)), cons)
     prob.solve(solver=cp.CLARABEL)
-    if prob.status != "optimal":
+    if prob.status not in {"optimal", "optimal_inaccurate"}:
         raise RuntimeError(f"QP status: {prob.status}")
 
     sent_v, recv_v = sent.value, recv.value
     eta_hat = np.empty(11)
+    eta_identifiable = np.zeros(11, dtype=bool)
     for ei, e in enumerate(CHANNELS):
         js = ds.ch_rows[e]
         s = sent_v[js].sum()
-        eta_hat[ei] = 1 - recv_v[js].sum() / s if s > 1.0 else ds.eta_eng[ei]
+        eta_identifiable[ei] = float(np.nansum(ds.sent_obs[js])) > 1.0
+        eta_hat[ei] = (1 - recv_v[js].sum() / s
+                       if eta_identifiable[ei] and s > 1.0
+                       else ds.eta_eng[ei])
+
+    def residual_values(expressions):
+        arrays = [np.asarray(expr.value, dtype=float).reshape(-1)
+                  for expr in expressions]
+        return np.concatenate(arrays) if arrays else np.empty(0)
+
+    data_residuals = residual_values(data_residual_exprs)
+    prior_residuals = residual_values(prior_residual_exprs)
+    if len(data_residuals) != n_obs:
+        raise RuntimeError(
+            f"standardized residual count {len(data_residuals)} != n_obs {n_obs}")
     return ReconcileResult(gen.value, imp.value, dem.value, loss.value,
-                           sent_v, recv_v, eta_hat, prob.value, n_obs)
+                           sent_v, recv_v, eta_hat, prob.value, n_obs,
+                           eta_identifiable=eta_identifiable, method=method,
+                           huber_delta=huber_delta,
+                           n_prior=len(prior_residuals),
+                           data_residuals=data_residuals,
+                           prior_residuals=prior_residuals,
+                           status=prob.status)
 
 
 def adjustments_table(ds: Dataset, res: ReconcileResult) -> pd.DataFrame:
@@ -366,7 +441,12 @@ def adjustments_table(ds: Dataset, res: ReconcileResult) -> pd.DataFrame:
 
 def influence_analysis(ds: Dataset, base: ReconcileResult,
                        adj: pd.DataFrame) -> pd.DataFrame:
-    """对高调整观测做 +5% 留一扰动重解,量化其对校正结果的传播影响。"""
+    """同一算法下做对称 ±5% 有限差分，并报告无量纲弹性。
+
+    区域年度用电与通道线损的量纲、数值尺度差异很大，不能直接加权相加。
+    因此先分别除以基准年度用电和工程线损率，再除以输入相对扰动幅度，
+    最后用二范数组合两类弹性。
+    """
     aux = ds.aux_ch.set_index("通道编号")
     cands: list[tuple[str, str, tuple, float]] = [
         ("2B", "E10/年度受端汇总", ("aux_ch", ("E10", "年度受端汇总")),
@@ -384,42 +464,213 @@ def influence_analysis(ds: Dataset, base: ReconcileResult,
             continue
         seen.add(name)
         if tab == "2A":
-            cands.append(("2A", name, ("ann", (loc, field)), row["观测值"]))
+            obs = float(ds.ann.loc[loc, field])
+            cands.append(("2A", name, ("ann", (loc, field)), obs))
         else:
             mth, reg = loc.split("/")
             k = int(np.where((ds.row_month == mth)
                              & (ds.row_region == reg))[0][0])
             if field in GEN_COLS:
                 key = ("gen", (k, GEN_COLS.index(field)))
+                obs = float(ds.gen_obs[key[1]])
             elif field in SECTORS:
                 key = ("dem", (k, SECTORS.index(field)))
+                obs = float(ds.dem_obs[key[1]])
             elif field == IMP_COL:
                 key = ("imp", (k,))
+                obs = float(ds.imp_obs[k])
             else:
                 continue
-            cands.append(("1A", name, key, row["观测值"]))
+            cands.append(("1A", name, key, obs))
 
-    base_ann = {r: base.dem[np.where(ds.row_region == r)[0]].sum()
-                for r in REGIONS}
+    base_ann = _annual_demand(ds, base)
     rows = []
     for tab, name, key, obs in cands:
-        pert = obs * 1.05 if abs(obs) > 1 else obs + 10.0
-        res = reconcile(ds, override={key: pert}, n_iter=1)
-        d_ann = max(abs(res.dem[np.where(ds.row_region == r)[0]].sum()
-                        - base_ann[r]) for r in REGIONS)
-        d_eta = float(np.max(np.abs(res.eta_hat - base.eta_hat)))
+        if not np.isfinite(obs) or abs(obs) <= 1e-12:
+            continue
+        lower, upper = obs * (1 - INFLUENCE_REL_STEP), obs * (
+            1 + INFLUENCE_REL_STEP)
+        common = dict(method=base.method, huber_delta=base.huber_delta)
+        low_res = reconcile(ds, override={key: lower}, **common)
+        high_res = reconcile(ds, override={key: upper}, **common)
+
+        low_ann = _annual_demand(ds, low_res)
+        high_ann = _annual_demand(ds, high_res)
+        demand_half_range = 0.5 * np.abs(high_ann - low_ann)
+        eta_half_range = 0.5 * np.abs(high_res.eta_hat - low_res.eta_hat)
+        demand_elasticity = float(np.max(
+            demand_half_range / np.maximum(np.abs(base_ann), 1.0)
+            / INFLUENCE_REL_STEP))
+        # E07 无流量且 eta 不可识别；其固定工程值的零响应不参与最大值。
+        eta_mask = base.eta_identifiable & (ds.eta_eng > 1e-12)
+        eta_elasticity = float(np.max(
+            eta_half_range[eta_mask] / ds.eta_eng[eta_mask]
+            / INFLUENCE_REL_STEP))
+        score = float(np.hypot(demand_elasticity, eta_elasticity))
         rows.append(dict(观测=name, 来源表=tab, 原值=round(obs, 2),
-                         扰动值=round(pert, 2),
-                         区域年度用电最大变化GWh=round(d_ann, 3),
-                         线损率估计最大变化=round(d_eta, 5),
-                         影响度=round(d_ann + 1e4 * d_eta, 3)))
-    df = pd.DataFrame(rows).sort_values("影响度", ascending=False)
+                         下扰动值=round(lower, 2), 上扰动值=round(upper, 2),
+                         相对扰动=INFLUENCE_REL_STEP,
+                         区域年度用电最大变化GWh=round(
+                             float(demand_half_range.max()), 6),
+                         线损率估计最大变化=round(
+                             float(eta_half_range.max()), 8),
+                         用电无量纲弹性=round(demand_elasticity, 8),
+                         线损无量纲弹性=round(eta_elasticity, 8),
+                         综合影响分数=round(score, 8),
+                         方法=base.method.upper()))
+    df = pd.DataFrame(rows).sort_values("综合影响分数", ascending=False)
     df.to_csv(OUT / "q1_influence.csv", index=False, encoding="utf-8-sig")
     return df
 
 
+def _annual_demand(ds: Dataset, res: ReconcileResult) -> np.ndarray:
+    """按 ``REGIONS`` 顺序返回调和后的区域年度终端用电。"""
+    return np.array([
+        res.dem[np.where(ds.row_region == region)[0]].sum()
+        for region in REGIONS
+    ])
+
+
+def _relative_state_rmse(clean: ReconcileResult,
+                         changed: ReconcileResult) -> float:
+    """六类状态逐元素相对 clean 标准化后的整体 RMSE。"""
+    terms = []
+    for name in ("gen", "imp", "dem", "loss", "sent", "recv"):
+        ref = np.asarray(getattr(clean, name), dtype=float)
+        value = np.asarray(getattr(changed, name), dtype=float)
+        terms.append(((value - ref) / np.maximum(np.abs(ref), 1.0)).ravel())
+    delta = np.concatenate(terms)
+    return float(np.sqrt(np.mean(delta ** 2)))
+
+
+def method_comparison(ds: Dataset, huber: ReconcileResult,
+                      wls: ReconcileResult) -> pd.DataFrame:
+    """导出清洁数据上的 Huber/WLS 拟合与结果差异。"""
+    base_ann = _annual_demand(ds, huber)
+    rows = []
+    for res in (huber, wls):
+        ann = _annual_demand(ds, res)
+        rows.append({
+            "方法": res.method.upper(),
+            "实际优化目标值": round(float(res.obj), 8),
+            "Huber观测目标值": round(float(res.robust_data_objective), 8),
+            "标准化观测平方和": round(float(res.standardized_data_rss), 8),
+            "标准化先验平方和": round(float(res.standardized_prior_rss), 8),
+            "描述性观测平方和/观测项": round(
+                float(res.standardized_data_rss / res.n_obs), 8),
+            "最大绝对标准化观测残差": round(
+                float(np.max(np.abs(res.data_residuals))), 8),
+            f"绝对标准化观测残差>{res.huber_delta:g}项数": int(
+                (np.abs(res.data_residuals) > res.huber_delta).sum()),
+            "相对Huber状态归一化RMSE": round(
+                _relative_state_rmse(huber, res), 10),
+            "相对Huber区域年度用电最大相对差": round(float(np.max(
+                np.abs(ann - base_ann) / np.maximum(np.abs(base_ann), 1.0))),
+                10),
+            "相对Huber线损率最大绝对差": round(float(np.max(
+                np.abs(res.eta_hat - huber.eta_hat))), 10),
+            "求解状态": res.status,
+        })
+    df = pd.DataFrame(rows)
+    df.to_csv(OUT / "q1_method_comparison.csv", index=False,
+              encoding="utf-8-sig")
+    return df
+
+
+def _contamination_cases(ds: Dataset) -> list[dict]:
+    """六个预先固定的代表性粗差，不根据求解结果挑选。"""
+
+    def region_row(month: str, region: str) -> int:
+        matches = np.where((ds.row_month == month)
+                           & (ds.row_region == region))[0]
+        if len(matches) != 1:
+            raise RuntimeError(f"cannot locate {month}/{region}")
+        return int(matches[0])
+
+    def channel_row(month: str, channel: str) -> int:
+        matches = ds.mc.index[(ds.mc["月份"] == month)
+                              & (ds.mc["通道编号"] == channel)].to_numpy()
+        if len(matches) != 1:
+            raise RuntimeError(f"cannot locate {month}/{channel}")
+        return int(matches[0])
+
+    k_a1 = region_row("2025-01", "A1")
+    k_a4 = region_row("2025-11", "A4")
+    k_a5 = region_row("2025-06", "A5")
+    j_e10 = channel_row("2025-09", "E10")
+    j_e03 = channel_row("2025-08", "E03")
+    ann = ds.ann
+    specs = [
+        ("月度火电+20%", "1A", "2025-01/A1/火电发电量",
+         ("gen", (k_a1, GEN_COLS.index("火电发电量"))),
+         float(ds.gen_obs[k_a1, GEN_COLS.index("火电发电量")]), 1.20),
+        ("月度省外输入+20%", "1A", "2025-11/A4/省外输入电量",
+         ("imp", (k_a4,)), float(ds.imp_obs[k_a4]), 1.20),
+        ("月度建筑服务用电-20%", "1A", "2025-06/A5/建筑服务用电",
+         ("dem", (k_a5, SECTORS.index("建筑服务用电"))),
+         float(ds.dem_obs[k_a5, SECTORS.index("建筑服务用电")]), 0.80),
+        ("月度送端计量+20%", "1B", "2025-09/E10/送端计量电量",
+         ("flow_sent", (j_e10,)), float(ds.sent_obs[j_e10]), 1.20),
+        ("月度受端计量-20%", "1B", "2025-08/E03/受端计量电量",
+         ("flow_recv", (j_e03,)), float(ds.recv_obs[j_e03]), 0.80),
+        ("年度终端用电+15%", "2A", "A5/年度终端用电量",
+         ("ann", ("A5", "终端用电量")),
+         float(ann.loc["A5", "终端用电量"]), 1.15),
+    ]
+    return [dict(污染场景=label, 来源表=table, 观测=name, key=key,
+                 原值=obs, 污染倍数=factor)
+            for label, table, name, key, obs, factor in specs]
+
+
+def contamination_experiment(ds: Dataset,
+                             clean_results: dict[str, ReconcileResult]
+                             ) -> pd.DataFrame:
+    """固定粗差下比较 Huber 与 WLS 相对各自清洁基线的偏移。"""
+    rows = []
+    for case in _contamination_cases(ds):
+        case_rows = []
+        contaminated = case["原值"] * case["污染倍数"]
+        for method in ("huber", "wls"):
+            clean = clean_results[method]
+            changed = reconcile(
+                ds, override={case["key"]: contaminated}, method=method,
+                huber_delta=clean.huber_delta)
+            clean_ann = _annual_demand(ds, clean)
+            changed_ann = _annual_demand(ds, changed)
+            row = {
+                "污染场景": case["污染场景"],
+                "来源表": case["来源表"],
+                "观测": case["观测"],
+                "原值": round(float(case["原值"]), 6),
+                "污染值": round(float(contaminated), 6),
+                "相对污染幅度": round(float(case["污染倍数"] - 1), 4),
+                "方法": method.upper(),
+                "状态归一化RMSE": _relative_state_rmse(clean, changed),
+                "区域年度用电最大相对变化": float(np.max(
+                    np.abs(changed_ann - clean_ann)
+                    / np.maximum(np.abs(clean_ann), 1.0))),
+                "线损率最大绝对变化": float(np.max(
+                    np.abs(changed.eta_hat - clean.eta_hat))),
+            }
+            rows.append(row)
+            case_rows.append(row)
+        rmse = {r["方法"]: r["状态归一化RMSE"] for r in case_rows}
+        ratio = (rmse["WLS"] / rmse["HUBER"]
+                 if rmse["HUBER"] > 1e-15 else np.nan)
+        for row in case_rows:
+            row["WLS相对Huber状态RMSE倍数"] = ratio
+
+    df = pd.DataFrame(rows)
+    numeric = ["状态归一化RMSE", "区域年度用电最大相对变化",
+               "线损率最大绝对变化", "WLS相对Huber状态RMSE倍数"]
+    df[numeric] = df[numeric].round(10)
+    df.to_csv(OUT / "q1_robustness.csv", index=False, encoding="utf-8-sig")
+    return df
+
+
 def export(ds: Dataset, res: ReconcileResult, anomalies: pd.DataFrame,
-           adj: pd.DataFrame) -> dict:
+           adj: pd.DataFrame, comparison: pd.DataFrame,
+           robustness: pd.DataFrame) -> dict:
     rm = pd.DataFrame({"月份": ds.row_month, "区域": ds.row_region})
     for s, col in enumerate(GEN_COLS):
         rm[col] = res.gen[:, s]
@@ -446,14 +697,35 @@ def export(ds: Dataset, res: ReconcileResult, anomalies: pd.DataFrame,
         "通道": CHANNELS, "工程线损率": ds.eta_eng,
         "原始隐含损耗率": np.round(raw_eta, 5),
         "调和后估计": np.round(res.eta_hat, 5),
+        "有效流量月份": [int((ds.sent_obs[ds.ch_rows[e]] > 1e-9).sum())
+                         for e in CHANNELS],
+        "线损可识别": res.eta_identifiable,
+        "估计状态": np.where(res.eta_identifiable, "数据估计",
+                              "无流量，采用工程值"),
     })
     eta_df.to_csv(OUT / "q1_eta.csv", index=False, encoding="utf-8-sig")
 
-    chi2 = float(res.obj)
+    comp = comparison.set_index("方法")
+    robust_mean = robustness.groupby("方法")["状态归一化RMSE"].mean()
+    robust_max_demand = robustness.groupby("方法")[
+        "区域年度用电最大相对变化"].max()
+    robust_max_eta = robustness.groupby("方法")["线损率最大绝对变化"].max()
+    improvement = float(robust_mean["WLS"] / robust_mean["HUBER"])
     summary = {
-        "目标函数(加权平方和)": round(chi2, 2),
+        "方法": "守恒约束标准化Huber数据调和",
+        "Huber阈值delta": res.huber_delta,
+        "求解状态": res.status,
+        "稳健目标值": round(float(res.obj), 6),
+        "稳健观测目标值": round(float(res.robust_data_objective), 6),
+        "标准化观测加权平方和": round(float(res.standardized_data_rss), 6),
+        "标准化观测加权残差/观测项": round(
+            float(res.standardized_data_rss / res.n_obs), 8),
+        "标准化先验平方和": round(float(res.standardized_prior_rss), 6),
         "观测项数": res.n_obs,
-        "chi2/n_obs": round(chi2 / res.n_obs, 4),
+        "先验残差项数": res.n_prior,
+        "统计量口径说明": (
+            "标准化观测平方和/观测项仅是描述性拟合指标；模型含先验、"
+            "硬约束、相关观测与估计状态，不将其解释为标准约化卡方。"),
         "异常条目数": int(len(anomalies)),
         "|z|>2 的调整数": int((adj["标准化调整"].abs() > 2).sum()),
         "区内损耗率(全省)": round(float(res.loss.sum() / res.dem.sum()), 5),
@@ -463,6 +735,36 @@ def export(ds: Dataset, res: ReconcileResult, anomalies: pd.DataFrame,
         },
         "eta": {e: round(float(v), 5)
                 for e, v in zip(CHANNELS, res.eta_hat)},
+        "eta可识别性": {
+            e: ("数据可识别" if identifiable else "无流量，采用工程值")
+            for e, identifiable in zip(CHANNELS, res.eta_identifiable)
+        },
+        "Huber-WLS清洁数据对照": {
+            "Huber描述性观测平方和/项": round(float(
+                comp.loc["HUBER", "描述性观测平方和/观测项"]), 8),
+            "WLS描述性观测平方和/项": round(float(
+                comp.loc["WLS", "描述性观测平方和/观测项"]), 8),
+            "两法状态归一化RMSE": round(float(
+                comp.loc["WLS", "相对Huber状态归一化RMSE"]), 10),
+            "区域年度用电最大相对差": round(float(
+                comp.loc["WLS", "相对Huber区域年度用电最大相对差"]), 10),
+            "线损率最大绝对差": round(float(
+                comp.loc["WLS", "相对Huber线损率最大绝对差"]), 10),
+        },
+        "确定性污染稳健性": {
+            "污染场景数": int(robustness["污染场景"].nunique()),
+            "Huber平均状态归一化RMSE": round(float(robust_mean["HUBER"]), 10),
+            "WLS平均状态归一化RMSE": round(float(robust_mean["WLS"]), 10),
+            "WLS相对Huber平均RMSE倍数": round(improvement, 6),
+            "Huber区域年度用电最大相对变化": round(float(
+                robust_max_demand["HUBER"]), 10),
+            "WLS区域年度用电最大相对变化": round(float(
+                robust_max_demand["WLS"]), 10),
+            "Huber线损率最大绝对变化": round(float(
+                robust_max_eta["HUBER"]), 10),
+            "WLS线损率最大绝对变化": round(float(
+                robust_max_eta["WLS"]), 10),
+        },
     }
     with open(OUT / "q1_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
@@ -480,46 +782,59 @@ def _imputed(ds: Dataset, res: ReconcileResult):
     return out
 
 
-def make_plots(ds: Dataset, res: ReconcileResult, adj: pd.DataFrame) -> None:
+def make_plots(ds: Dataset, res: ReconcileResult | None, adj: pd.DataFrame,
+               infl: pd.DataFrame) -> None:
     import matplotlib.pyplot as plt
 
+    from ..common.advanced_plots import (dumbbell, heatmap_with_marginals,
+                                         lollipop_h, treemap)
+
     plot_setup()
-    # 图1:原始平衡残差热力图(标准化)
     raw_res, raw_sig = _raw_balance_residual(ds)
-    z = (raw_res / raw_sig).reshape(12, 8)  # 月主序
-    fig, ax = plt.subplots(figsize=(7, 4.2))
-    im = ax.imshow(z.T, cmap="RdBu_r", vmin=-6, vmax=6, aspect="auto")
-    ax.set_xticks(range(12), [m[-2:] for m in MONTHS])
-    ax.set_yticks(range(8), REGIONS)
+    z = (raw_res / raw_sig).reshape(12, 8)
+    fig = plt.figure(figsize=(7.2, 4.5))
+    ax, _ = heatmap_with_marginals(
+        fig, z, [m[-2:] for m in MONTHS], REGIONS,
+        cbar_label=r"标准化残差 $z$（色标截断于 $\pm 6$）")
     ax.set_xlabel("月份(2025)")
-    ax.set_title("校正前区域能量平衡标准化残差 z")
-    fig.colorbar(im, ax=ax, shrink=0.85)
-    fig.savefig(OUT / "fig_q1_raw_residual_heatmap.png")
+    save_fig(fig, OUT / "fig_q1_raw_residual_heatmap.png")
     plt.close(fig)
 
-    # 图2:线损率对比
     eta_df = pd.read_csv(OUT / "q1_eta.csv")
-    x = np.arange(11)
-    fig, ax = plt.subplots(figsize=(7, 3.6))
-    ax.bar(x - 0.27, eta_df["工程线损率"], 0.27, label="工程记录")
-    ax.bar(x, eta_df["原始隐含损耗率"], 0.27, label="原始数据隐含")
-    ax.bar(x + 0.27, eta_df["调和后估计"], 0.27, label="调和后估计")
-    ax.set_xticks(x, CHANNELS)
-    ax.set_ylabel("线损率")
-    ax.set_title("通道线损率:工程值 vs 隐含值 vs 调和估计")
-    ax.legend()
-    fig.savefig(OUT / "fig_q1_eta_compare.png")
+    fig, ax = plt.subplots(figsize=(7.2, 3.8))
+    implied = pd.to_numeric(eta_df["原始隐含损耗率"], errors="coerce")
+    dumbbell(ax, eta_df["通道"], eta_df["工程线损率"], eta_df["调和后估计"],
+             "工程记录", "调和后估计", mid=implied, mid_label="原始数据隐含")
+    identifiable = eta_df["线损可识别"].astype(bool)
+    for ei, ok in enumerate(identifiable):
+        if ok:
+            continue
+        ax.scatter(eta_df.loc[ei, "调和后估计"], ei, s=70, marker="x",
+                   color="#7f4f00", zorder=4)
+        ax.text(eta_df.loc[ei, "调和后估计"] + 0.0012, ei,
+                "不可识别,工程值回填", va="center", fontsize=6.5)
+    ax.set_xlabel("线损率")
+    ax.set_xlim(0, 0.05)
+    save_fig(fig, OUT / "fig_q1_eta_compare.png")
     plt.close(fig)
 
-    # 图3:标准化调整 Top20
     top = adj.head(20).iloc[::-1]
-    fig, ax = plt.subplots(figsize=(7, 5.2))
+    fig, ax = plt.subplots(figsize=(7.2, 5.2))
     labels = top["表"] + " " + top["位置"] + " " + top["字段"]
-    ax.barh(labels, top["标准化调整"],
-            color=np.where(top["标准化调整"] > 0, "#d62728", "#1f77b4"))
+    lollipop_h(ax, labels, top["标准化调整"], diverging=True)
     ax.set_xlabel(r"标准化调整 $z$（校正值与观测值之差 / $\sigma$）")
-    ax.set_title("校正幅度最大的 20 个观测")
-    fig.savefig(OUT / "fig_q1_adjust_top20.png")
+    save_fig(fig, OUT / "fig_q1_adjust_top20.png")
+    plt.close(fig)
+
+    ranked = infl.sort_values("综合影响分数", ascending=False)
+    fig, ax = plt.subplots(figsize=(7.2, 3.8))
+    short = [str(s).replace("年度", "").replace("电量", "")
+             for s in ranked["观测"]]
+    cmap = plt.cm.YlOrRd
+    n = len(ranked)
+    colors = [cmap(0.35 + 0.6 * (n - 1 - i) / max(n - 1, 1)) for i in range(n)]
+    treemap(ax, ranked["综合影响分数"].to_numpy(float), short, colors=colors)
+    save_fig(fig, OUT / "fig_q1_influence.png")
     plt.close(fig)
 
 
@@ -527,15 +842,23 @@ def main() -> None:
     ds = Dataset()
     anomalies = detect_anomalies(ds)
     print(f"[Q1] 异常/不一致条目: {len(anomalies)}")
-    res = reconcile(ds)
-    print(f"[Q1] QP 最优, χ²={res.obj:.1f}, 观测项={res.n_obs}, "
-          f"χ²/n={res.obj / res.n_obs:.3f}")
+    res = reconcile(ds, method="huber")
+    wls = reconcile(ds, method="wls")
+    print(f"[Q1] Huber 凸调和最优, 稳健目标={res.obj:.3f}, "
+          f"描述性观测平方和/项={res.standardized_data_rss / res.n_obs:.5f}")
+    print(f"[Q1] WLS 对照最优, 目标={wls.obj:.3f}, "
+          f"描述性观测平方和/项={wls.standardized_data_rss / wls.n_obs:.5f}")
     adj = adjustments_table(ds, res)
     infl = influence_analysis(ds, res, adj)
-    summary = export(ds, res, anomalies, adj)
-    make_plots(ds, res, adj)
+    comparison = method_comparison(ds, res, wls)
+    robustness = contamination_experiment(ds, {"huber": res, "wls": wls})
+    summary = export(ds, res, anomalies, adj, comparison, robustness)
+    make_plots(ds, res, adj, infl)
     print("[Q1] 线损率估计:", summary["eta"])
-    print("[Q1] 影响度Top3:\n", infl.head(3).to_string(index=False))
+    print("[Q1] 综合影响分数 Top3:\n", infl.head(3).to_string(index=False))
+    robust_summary = summary["确定性污染稳健性"]
+    print("[Q1] 污染试验 WLS/Huber 平均状态RMSE倍数:",
+          robust_summary["WLS相对Huber平均RMSE倍数"])
     print(f"[Q1] 输出目录: {OUT}")
 
 

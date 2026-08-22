@@ -13,12 +13,14 @@ import pyomo.environ as pyo
 
 from ..common import data_io
 from ..common.paths import CHANNELS, PLAN_YEARS, REGIONS, out_dir
+from ..common.plotting import savefig as save_fig
 from ..common.plotting import setup as plot_setup
 from ..q2_carbonflow.main import load_inputs, responsibility, run_tracing
 from ..q3_portfolio.main import (EF_PV, Params, build_model, extract,
                                  merit_order, solve)
 from ..q4_robust.main import (FIRST_STAGE, UNC_YEARS, Params4, build_q4_model,
-                              ccg_two_stage, plan_metrics)
+                              feasibility_scenario_generation, plan_metrics,
+                              _objective_components)
 
 Q1 = out_dir("q1")
 Q2 = out_dir("q2")
@@ -217,28 +219,27 @@ def plot_carbon_network(cf: np.ndarray, resp: pd.DataFrame) -> None:
         ax.text(x, y - 0.085, f"净{(netc[r]):+.0f}", ha="center",
                 fontsize=7, color="#333")
 
-    ax.set_title(r"2025 年区域间电力碳流(箭头宽度$\propto$到达碳量 ktCO$_2$)" "\n"
-                 r"节点颜色:消费责任$-$生产责任(红=净转入,蓝=净转出)")
-    fig.savefig(OUT / "fig_q2_carbon_flow_network.png")
+    save_fig(fig, OUT / "fig_q2_carbon_flow_network.png")
     plt.close(fig)
 
 
 def plot_responsibility_four(resp: pd.DataFrame) -> None:
     import matplotlib.pyplot as plt
 
+    from ..common.advanced_plots import annotated_heatmap
+
     plot_setup()
     fig, ax = plt.subplots(figsize=(7.6, 4.2))
-    x = np.arange(8)
-    w = 0.2
-    ax.bar(x - 1.5 * w, resp["扩展生产责任P+"], w, label="生产 P+")
-    ax.bar(x - 0.5 * w, resp["消费责任全口径C+"], w, label="消费 C+")
-    ax.bar(x + 0.5 * w, resp["共担责任(λ=0.5)"], w, label=r"$\lambda$ 共担(0.5)")
-    ax.bar(x + 1.5 * w, resp["Shapley责任"], w, label="Shapley")
-    ax.set_xticks(x, REGIONS)
-    ax.set_ylabel(r"年度碳排放责任 ktCO$_2$")
-    ax.set_title("四种口径下的区域碳排放责任(2025)")
-    ax.legend(ncols=4, fontsize=8)
-    fig.savefig(OUT / "fig_q2_responsibility_shapley.png")
+    idx = resp.set_index("区域").reindex(REGIONS)
+    mat = np.column_stack([
+        idx["扩展生产责任P+"], idx["消费责任全口径C+"],
+        idx["共担责任(λ=0.5)"], idx["Shapley责任"],
+    ]).astype(float)
+    im = annotated_heatmap(
+        ax, mat, [r"$P^+$", r"$C^+$", r"$\lambda=0.5$", "Shapley"],
+        REGIONS, cmap="YlOrRd", fmt=".0f")
+    fig.colorbar(im, ax=ax, shrink=0.85).set_label(r"ktCO$_2$")
+    save_fig(fig, OUT / "fig_q2_responsibility_shapley.png")
     plt.close(fig)
 
 
@@ -257,7 +258,9 @@ def q1_param_sensitivity() -> pd.DataFrame:
         loss_rate = float(res.loss.sum() / max(res.dem.sum(), 1e-9))
         return dict(
             类型=kind, 设定=tag, 参数值=value,
-            chi2_over_n=round(float(res.obj) / res.n_obs, 4),
+            稳健目标值=round(float(res.obj), 6),
+            描述性观测RSS每项=round(
+                float(res.standardized_data_rss) / res.n_obs, 8),
             区内损耗率=round(loss_rate, 5),
             E05线损估计=round(e05, 5),
         )
@@ -266,14 +269,14 @@ def q1_param_sensitivity() -> pd.DataFrame:
         for rate in (0.03, 0.05, 0.08):
             q1m.LOSS_PRIOR_RATE = rate
             q1m.SIG = dict(base_sig)
-            res = q1m.reconcile(ds, n_iter=2)
+            res = q1m.reconcile(ds, method="huber")
             rows.append(metrics(f"区内损耗先验 {int(rate * 100)}%",
                                 "损耗先验", rate, res))
         q1m.LOSS_PRIOR_RATE = base_rate
         for scale in (0.5, 1.0, 2.0):
             q1m.SIG = {k: (rel * scale, floor)
                        for k, (rel, floor) in base_sig.items()}
-            res = q1m.reconcile(ds, n_iter=2)
+            res = q1m.reconcile(ds, method="huber")
             rows.append(metrics(f"相对不确定度 ×{scale:g}",
                                 "σ缩放", scale, res))
     finally:
@@ -549,20 +552,22 @@ def q3_baselines_and_sens() -> dict:
 def plot_q3_no_project(traj: pd.DataFrame) -> None:
     import matplotlib.pyplot as plt
 
+    from ..common.advanced_plots import annotated_heatmap
+
     plot_setup()
-    fig, ax = plt.subplots(figsize=(7.2, 4.1))
-    ax.plot(traj["年份"], traj["无项目碳_kt"], "o--", color="#7f7f7f",
-            label="无项目基准")
-    ax.plot(traj["年份"], traj["贪心碳_kt"], "s-", color="#ff7f0e",
-            label="贪心可行解")
-    ax.plot(traj["年份"], traj["MILP碳_kt"], "o-", color="#1f77b4",
-            label="MILP 主方案")
-    ax.plot(traj["年份"], traj["碳上限_kt"], "k--", lw=2, label="年度碳上限")
-    ax.set_xticks(PLAN_YEARS)
-    ax.set_ylabel(r"消费侧碳排放 ktCO$_2$")
-    ax.set_title("问题三:无项目 / 贪心 / MILP 碳排放轨迹")
-    ax.legend(fontsize=8)
-    fig.savefig(OUT / "fig_q3_no_project.png")
+    cap = traj["碳上限_kt"].to_numpy(float)
+    mat = np.vstack([
+        traj["无项目碳_kt"].to_numpy(float) - cap,
+        traj["贪心碳_kt"].to_numpy(float) - cap,
+        traj["MILP碳_kt"].to_numpy(float) - cap,
+    ])
+    fig, ax = plt.subplots(figsize=(7.2, 3.4))
+    lim = float(np.nanmax(np.abs(mat))) or 1.0
+    im = annotated_heatmap(ax, mat, [str(y) for y in traj["年份"]],
+                           ["无项目", "贪心", "MILP"], cmap="RdBu_r",
+                           fmt=".0f", vmin=-lim, vmax=lim)
+    fig.colorbar(im, ax=ax, shrink=0.85).set_label(r"相对上限差额 ktCO$_2$")
+    save_fig(fig, OUT / "fig_q3_no_project.png")
     plt.close(fig)
 
 
@@ -627,6 +632,8 @@ def rolling_with_investment(p4: Params4, x1: dict,
         m = build_q4_model(p4, xi=xi_known, robust_gamma_scale=1.0,
                            robust_from=y_now + 1, fixed_x=committed)
         cost = solve(m)
+        togo = _objective_components(
+            p4, m, (y for y in PLAN_YEARS if y >= y_now))
         for p in p4.pa.projects:
             committed[(p, y_now)] = pyo.value(m.x[p, y_now])
         E, viol = {}, {}
@@ -640,7 +647,10 @@ def rolling_with_investment(p4: Params4, x1: dict,
                          for p in p4.pa.projects for t in PLAN_YEARS
                          if t <= y_now)
         rows.append(dict(情景=scen, 决策年=y_now,
-                         剩余期目标_百万元=round(cost, 1),
+                         全周期条件目标_百万元=round(cost, 1),
+                         剩余期目标_百万元=round(
+                             togo["目标合计_百万元"], 1),
+                         剩余期投资_百万元=round(togo["投资_百万元"], 1),
                          累计投资_百万元=round(inv_so_far, 1),
                          **{f"越限{y}_kt": round(viol[y], 2) for y in UNC_YEARS}))
     inv_total = sum(committed.get((p, t), 0.0) * p4.pa.inv[p]
@@ -649,23 +659,24 @@ def rolling_with_investment(p4: Params4, x1: dict,
 
 
 def q4_three_schemes() -> dict:
-    print("[deepen] Q4 确定性 / 静态鲁棒 / 滚动 对照…")
+    print("[deepen] Q4 确定性 / Γ=1软防御 / S3滚动 对照…")
     p4 = Params4()
     stress = pd.read_csv(Q4 / "q4_stress.csv")
     por = pd.read_csv(Q4 / "q4_por_curve.csv")
+    with open(Q4 / "q4_summary.json", encoding="utf-8") as f:
+        q4_summary = json.load(f)
     s3 = stress[stress["情景"] == "S3"].set_index("年份")
-    worst = stress[stress["情景"] == "预算集最坏"].set_index("年份")
     nom = por[por["Gamma缩放"] == 0.0].iloc[0]
     rob = por[por["Gamma缩放"] == 1.0].iloc[0]
 
-    print("  重解静态鲁棒 τ=1 以核算 S3 越限…")
+    print("  重解 Γ=1 软约束方案以核算 S3 越限…")
     m_rob = build_q4_model(p4, robust_gamma_scale=1.0)
     solve(m_rob)
     rob_s3 = _s3_violations(p4, m_rob)
     rob_met = plan_metrics(p4, m_rob)
 
-    print("  重跑 C&CG + 滚动以提取投资…")
-    _, log, x1, _ = ccg_two_stage(p4)
+    print("  重跑可行性场景生成启发式 + 滚动以提取投资…")
+    _, log, x1, _ = feasibility_scenario_generation(p4)
     roll_s3, roll_inv, committed = rolling_with_investment(p4, x1, "S3")
     roll_s1, roll_inv_s1, _ = rolling_with_investment(p4, x1, "S1")
     roll_s0, roll_inv_s0, _ = rolling_with_investment(p4, x1, "S0")
@@ -681,7 +692,8 @@ def q4_three_schemes() -> dict:
     roll_s3_v = {y: float(roll_s3.iloc[-1][f"越限{y}_kt"]) for y in UNC_YEARS}
 
     gamma_slim = por.rename(columns={"Gamma缩放": "tau"})[
-        ["tau", "投资_百万元", "最坏情景总越限_kt"]]
+        ["tau", "投资_百万元", "设计集tauGamma违约_kt",
+         "统一Gamma回测违约_kt"]]
     gamma_slim.to_csv(OUT / "q4_gamma_sensitivity.csv", index=False,
                       encoding="utf-8-sig")
 
@@ -693,20 +705,22 @@ def q4_three_schemes() -> dict:
              S3_2030越限_kt=float(s3.loc[2030, "越限_kt"]),
              预算集最坏总越限_kt=float(nom["最坏情景总越限_kt"]),
              推荐="压力底线,不宜单独采用"),
-        dict(方案="静态鲁棒(Γ×τ=1)",
+        dict(方案="Γ=1软约束防御",
              总投资_百万元=round(float(rob_met["投资"]), 1),
              S3_2028越限_kt=round(rob_s3[2028], 1),
              S3_2029越限_kt=round(rob_s3[2029], 1),
              S3_2030越限_kt=round(rob_s3[2030], 1),
              预算集最坏总越限_kt=round(float(rob_met["总最坏越限"]), 2),
-             推荐="一次性锁死五年,溢价高"),
-        dict(方案="稳健滚动(已观测年用真值,未来年Γ-鲁棒)",
+             推荐=(
+                 f"仍有{q4_summary['Gamma1最小总硬缺口_kt']:.2f} kt"
+                 "结构性缺口,不可称完整硬鲁棒")),
+        dict(方案="S3滚动(已观测年用真值,未来年Γ-软防御)",
              总投资_百万元=round(roll_inv, 1),
              S3_2028越限_kt=roll_s3_v[2028],
              S3_2029越限_kt=roll_s3_v[2029],
              S3_2030越限_kt=roll_s3_v[2030],
              预算集最坏总越限_kt=np.nan,
-             推荐="S3下零越限;一阶段已鲁棒锁定,S3总投资与静态鲁棒相同"),
+             推荐="给定S3路径下零越限;不是对完整Γ集合的硬保证"),
     ])
     table.to_csv(OUT / "q4_three_schemes.csv", index=False, encoding="utf-8-sig")
     plot_three_schemes(table)
@@ -718,8 +732,8 @@ def q4_three_schemes() -> dict:
         滚动S0投资_百万元=round(roll_inv_s0, 1),
         滚动剩余期目标=roll_s3[["决策年", "剩余期目标_百万元",
                                 "累计投资_百万元"]].to_dict("records"),
-        静态鲁棒投资核对=round(float(rob["投资_百万元"]), 1),
-        CCG日志=log.to_dict("records"),
+        Gamma1软方案投资核对=round(float(rob["投资_百万元"]), 1),
+        可行性场景生成日志=log.to_dict("records"),
         Sij局限=sij,
     )
 
@@ -728,45 +742,25 @@ def plot_three_schemes(table: pd.DataFrame) -> None:
     import matplotlib.pyplot as plt
 
     plot_setup()
-    fig = plt.figure(figsize=(8.2, 4.8))
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.05, 1.35], wspace=0.32)
-    ax = fig.add_subplot(gs[0])
-    names = ["确定性", "静态鲁棒", "稳健滚动"]
+    names = ["确定性", r"$\Gamma=1$软防御", "S3滚动"]
     inv = table["总投资_百万元"].to_numpy(float)
     v2030 = table["S3_2030越限_kt"].to_numpy(float)
-    ax.bar(np.arange(3) - 0.18, inv, 0.36, label="总投资(百万元)",
-           color="#1f77b4")
-    ax2 = ax.twinx()
-    ax2.bar(np.arange(3) + 0.18, v2030, 0.36, label="S3-2030越限(kt)",
-            color="#d62728")
-    ax.set_xticks(range(3), names)
-    ax.set_ylabel("总投资(百万元)")
-    ax2.set_ylabel(r"S3 情景 2030 越限(ktCO$_2$)")
-    ax.set_title("三方案:投资与 S3-2030 越限")
-    ax.grid(True, axis="y", alpha=0.3)
-    ax2.grid(False)
-
-    ax_t = fig.add_subplot(gs[1])
-    ax_t.axis("off")
-    names = ["确定性", "静态鲁棒", "稳健滚动"]
-    cell = []
-    for i, (_, r) in enumerate(table.iterrows()):
-        cell.append([
-            names[i],
-            f"{r['总投资_百万元']:.0f}",
-            f"{r['S3_2030越限_kt']:.1f}",
-            ("" if pd.isna(r["预算集最坏总越限_kt"])
-             else f"{r['预算集最坏总越限_kt']:.1f}"),
-        ])
-    tab = ax_t.table(
-        cellText=cell,
-        colLabels=["方案", "投资", "S3-2030越限", "最坏总越限"],
-        loc="center", cellLoc="center")
-    tab.auto_set_font_size(False)
-    tab.set_fontsize(8)
-    tab.scale(1.15, 1.7)
-    ax_t.set_title("确定性 / 静态鲁棒 / 滚动 对照", pad=12)
-    fig.savefig(OUT / "fig_q4_three_schemes.png")
+    fig, ax = plt.subplots(figsize=(7.2, 3.8))
+    colors = ["#D55E00", "#0072B2", "#009E73"]
+    markers = ["s", "o", "D"]
+    ax.annotate("", xy=(inv[1], v2030[1]), xytext=(inv[0], v2030[0]),
+                arrowprops=dict(arrowstyle="->", color="#666", lw=1.1))
+    for i, name in enumerate(names):
+        ax.scatter(inv[i], v2030[i], s=70, color=colors[i], marker=markers[i],
+                   zorder=3, label=name, edgecolors="white", linewidths=0.4)
+        dx, dy = (8, 8) if i != 2 else (8, -14)
+        ax.annotate(f"{name} ({inv[i]:.1f}, {v2030[i]:.1f})",
+                    (inv[i], v2030[i]), textcoords="offset points",
+                    xytext=(dx, dy), fontsize=8)
+    ax.set_xlabel("总投资(百万元)")
+    ax.set_ylabel(r"S3 情景 2030 越限(ktCO$_2$)")
+    ax.legend(fontsize=8, loc="upper right")
+    save_fig(fig, OUT / "fig_q4_three_schemes.png")
     plt.close(fig)
 
 

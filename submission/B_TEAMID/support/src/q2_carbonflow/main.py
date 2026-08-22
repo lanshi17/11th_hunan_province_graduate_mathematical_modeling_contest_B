@@ -13,13 +13,15 @@
 """
 from __future__ import annotations
 
+import argparse
 import json
 
 import numpy as np
 import pandas as pd
 
 from ..common import data_io
-from ..common.paths import MONTHS, REGIONS, SECTORS, SOURCES, out_dir
+from ..common.paths import MONTHS, REGIONS, SOURCES, out_dir
+from ..common.plotting import savefig as save_fig
 from ..common.plotting import setup as plot_setup
 
 Q1 = out_dir("q1")
@@ -44,7 +46,10 @@ def solve_month(rm_t: pd.DataFrame, cm_t: pd.DataFrame,
     返回 (rho[8], mix[8×5 来源能量占比], Q[8 总入流能量])。
     """
     idx = {r: i for i, r in enumerate(REGIONS)}
-    g = rm_t.set_index("区域")
+    if len(rm_t) != len(REGIONS) or rm_t["区域"].duplicated().any() \
+            or set(rm_t["区域"]) != set(REGIONS):
+        raise ValueError("单月区域表必须恰含 A1--A8 各一行")
+    g = rm_t.set_index("区域").reindex(REGIONS)
     G = g[GEN_COLS].to_numpy(float)                 # (8,4)
     imp = g["省外输入电量"].to_numpy(float)          # (8,)
 
@@ -98,7 +103,11 @@ def responsibility(rm, cm, ef_local, ef_ext, rho_m) -> pd.DataFrame:
     loss_carbon_in = np.zeros(8)     # 区内损耗碳
     ch_loss_carbon = np.zeros(8)     # 通道损耗碳(送端承担)
     for t, m in enumerate(MONTHS):
-        g = rm[rm["月份"] == m].set_index("区域")
+        rm_t = rm[rm["月份"] == m]
+        if len(rm_t) != len(REGIONS) or rm_t["区域"].duplicated().any() \
+                or set(rm_t["区域"]) != set(REGIONS):
+            raise ValueError(f"{m} 区域表必须恰含 A1--A8 各一行")
+        g = rm_t.set_index("区域").reindex(REGIONS)
         G = g[GEN_COLS].to_numpy(float)
         imp = g["省外输入电量"].to_numpy(float)
         D = g["终端用电合计"].to_numpy(float)
@@ -163,6 +172,14 @@ def export(rm, rho_m, rho_recv, mix_m, impshare_m, resp: pd.DataFrame) -> dict:
     mix_df["本地清洁占比"] = mix_ann[:, 1:4].sum(axis=1)
     mix_df.to_csv(OUT / "q2_origin_mix_annual.csv", index=False,
                   encoding="utf-8-sig")
+    mix_m_rows = []
+    for t, m in enumerate(MONTHS):
+        for i, r in enumerate(REGIONS):
+            mix_m_rows.append(dict(月份=m, 区域=r,
+                                   **{o: mix_m[t, i, j]
+                                      for j, o in enumerate(ORIGIN_CLASSES)}))
+    pd.DataFrame(mix_m_rows).to_csv(OUT / "q2_origin_mix_monthly.csv",
+                                    index=False, encoding="utf-8-sig")
 
     # 先对原始口径四舍五入,再由舍入后的 P+/C+ 生成共担列,避免 0.5(P+C) 与表内不一致
     rounded = resp.copy()
@@ -201,70 +218,155 @@ def export(rm, rho_m, rho_recv, mix_m, impshare_m, resp: pd.DataFrame) -> dict:
     return summary
 
 
-def make_plots(rho_m, rho_recv, mix_ann_path, resp) -> None:
+def make_plots(rho_m, rho_recv, mix_ann_path, resp, mix_m=None) -> None:
     import matplotlib.pyplot as plt
 
+    from ..common.advanced_plots import (OKABE, ORIGIN_COLORS, alluvial,
+                                         annotated_heatmap, bubble_matrix,
+                                         marimekko, parallel_coordinates,
+                                         streamgraph)
+
     plot_setup()
-    fig, ax = plt.subplots(figsize=(7.5, 4))
-    for i, r in enumerate(REGIONS):
-        ax.plot(range(1, 13), rho_m[:, i], marker="o", ms=3, label=r)
+    months = np.arange(1, 13)
+    fig, ax = plt.subplots(figsize=(7.4, 3.8))
+    sc = bubble_matrix(ax, rho_m, [str(m) for m in months], REGIONS,
+                       cmap="YlOrRd")
     ax.set_xlabel("月份(2025)")
-    ax.set_ylabel(r"终端用电碳强度 kgCO$_2$/kWh")
-    ax.set_title("各区域逐月节点碳势(送端承担口径)")
-    ax.legend(ncols=4, fontsize=8)
-    fig.savefig(OUT / "fig_q2_rho_monthly.png")
+    cbar = fig.colorbar(sc, ax=ax, shrink=0.85)
+    cbar.set_label(r"节点碳势 kgCO$_2$/kWh")
+    save_fig(fig, OUT / "fig_q2_rho_monthly.png")
     plt.close(fig)
 
     mix = pd.read_csv(mix_ann_path)
-    fig, ax = plt.subplots(figsize=(7.5, 4))
-    bottom = np.zeros(8)
-    colors = {"火电": "#8c564b", "水电": "#1f77b4", "风电": "#2ca02c",
-              "光伏": "#ff7f0e", "省外输入": "#7f7f7f"}
-    for o in ORIGIN_CLASSES:
-        ax.bar(mix["区域"], mix[o], bottom=bottom, label=o, color=colors[o])
-        bottom += mix[o].to_numpy()
-    ax.set_ylabel("消费电量来源占比")
-    ax.set_title("各区域终端用电的电源来源分解(2025,能量口径)")
-    ax.legend(ncols=5, fontsize=8)
-    fig.savefig(OUT / "fig_q2_origin_mix.png")
+    rho_ann = pd.read_csv(OUT / "q2_rho_annual.csv").set_index("区域")
+    demand = rho_ann.reindex(REGIONS)["2025终端用电GWh"].to_numpy(float)
+    mix_idx = mix.set_index("区域").reindex(REGIONS)
+    shares = mix_idx[ORIGIN_CLASSES].to_numpy(float)
+    fig, ax = plt.subplots(figsize=(7.4, 4.0))
+    marimekko(ax, shares, demand, REGIONS, ORIGIN_CLASSES,
+              [ORIGIN_COLORS[o] for o in ORIGIN_CLASSES])
+    ax.set_ylabel("来源占比")
+    save_fig(fig, OUT / "fig_q2_origin_mix.png")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(7.5, 4))
-    x = np.arange(8)
-    ax.bar(x - 0.3, resp["扩展生产责任P+"], 0.3, label="生产责任 P+")
-    ax.bar(x, resp["消费责任全口径C+"], 0.3, label="消费责任 C+")
-    ax.bar(x + 0.3, resp["共担责任(λ=0.5)"], 0.3, label=r"共担 $\lambda=0.5$")
-    ax.set_xticks(x, REGIONS)
-    ax.set_ylabel(r"年度碳排放责任 ktCO$_2$")
-    ax.set_title("三种口径下的区域碳排放责任(2025)")
-    ax.legend()
-    fig.savefig(OUT / "fig_q2_responsibility.png")
+    flow = np.vstack([mix_idx[o].to_numpy(float) * demand
+                      for o in ORIGIN_CLASSES])
+    fig, ax = plt.subplots(figsize=(7.4, 4.6))
+    alluvial(ax, flow, ORIGIN_CLASSES, REGIONS,
+             [ORIGIN_COLORS[o] for o in ORIGIN_CLASSES])
+    save_fig(fig, OUT / "fig_q2_sankey.png")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(7.5, 3.6))
+    if mix_m is None and (OUT / "q2_origin_mix_monthly.csv").exists():
+        monthly = pd.read_csv(OUT / "q2_origin_mix_monthly.csv")
+        mix_m = np.zeros((12, 8, 5))
+        for t, m in enumerate(MONTHS):
+            sub = monthly[monthly["月份"] == m].set_index("区域").reindex(REGIONS)
+            mix_m[t] = sub[ORIGIN_CLASSES].to_numpy(float)
+    if mix_m is not None:
+        rm = pd.read_csv(Q1 / "q1_reconciled_region_month.csv")
+        dem = (rm.pivot_table(index="月份", columns="区域",
+                              values="终端用电合计")
+               .reindex(index=MONTHS, columns=REGIONS)
+               .to_numpy(float))
+        fig, axes = plt.subplots(2, 2, figsize=(7.4, 4.8), sharex=True)
+        focus = ["A5", "A7", "A2", "A4"]
+        for ax, r in zip(axes.flat, focus):
+            i = REGIONS.index(r)
+            stacks = [mix_m[:, i, ORIGIN_CLASSES.index(o)] * dem[:, i]
+                      for o in ORIGIN_CLASSES]
+            streamgraph(ax, months, stacks, ORIGIN_CLASSES,
+                        [ORIGIN_COLORS[o] for o in ORIGIN_CLASSES])
+            ax.set_xlim(1, 12)
+            ax.set_ylabel("GWh")
+            ax.text(0.04, 0.90, r, transform=ax.transAxes, fontsize=9)
+            ax.set_xticks(months)
+        axes[0, 0].legend(ncols=5, fontsize=7, loc="upper center",
+                          bbox_to_anchor=(1.05, 1.28), frameon=False)
+        axes[1, 0].set_xlabel("月份(2025)")
+        axes[1, 1].set_xlabel("月份(2025)")
+        save_fig(fig, OUT / "fig_q2_seasonal_mix.png")
+        plt.close(fig)
+
+    par = mix_idx[ORIGIN_CLASSES].copy()
+    par.insert(0, "区域", REGIONS)
+    par["碳强度"] = rho_ann.reindex(REGIONS)["2025终端碳强度"].to_numpy(float)
+    value_cols = ["火电", "水电", "省外输入", "碳强度", "光伏"]
+    scaled = par.copy()
+    for c in value_cols:
+        vmax = float(scaled[c].max())
+        scaled[c] = scaled[c] / vmax if vmax > 0 else 0.0
+    fig, ax = plt.subplots(figsize=(7.4, 3.8))
+    parallel_coordinates(ax, scaled, "区域", value_cols, colors=OKABE)
+    ax.set_ylabel("分项最大值归一化")
+    save_fig(fig, OUT / "fig_q2_parallel.png")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7.2, 4.0))
+    mat = np.column_stack([
+        resp.set_index("区域").reindex(REGIONS)["扩展生产责任P+"],
+        resp.set_index("区域").reindex(REGIONS)["消费责任全口径C+"],
+        resp.set_index("区域").reindex(REGIONS)["共担责任(λ=0.5)"],
+    ]).astype(float)
+    im = annotated_heatmap(ax, mat, [r"$P^+$", r"$C^+$", r"$\lambda=0.5$"],
+                           REGIONS, cmap="YlOrRd", fmt=".0f")
+    fig.colorbar(im, ax=ax, shrink=0.85).set_label(r"ktCO$_2$")
+    save_fig(fig, OUT / "fig_q2_responsibility.png")
+    plt.close(fig)
+
+    fig, ax = plt.subplots(figsize=(7.2, 3.6))
     diff = rho_recv - rho_m
-    im = ax.imshow(diff.T, cmap="PuOr", aspect="auto")
+    im = ax.imshow(diff.T, cmap="PuOr", aspect="auto", interpolation="nearest")
     ax.set_xticks(range(12), [m[-2:] for m in MONTHS])
     ax.set_yticks(range(8), REGIONS)
-    ax.set_title(r"线损碳排口径差:受端承担 $-$ 送端承担(kgCO$_2$/kWh)")
-    fig.colorbar(im, ax=ax, shrink=0.85)
-    fig.savefig(OUT / "fig_q2_loss_convention_diff.png")
+    ax.set_xlabel("月份(2025)")
+    ax.grid(False)
+    cbar = fig.colorbar(im, ax=ax, shrink=0.85)
+    cbar.set_label(r"受端承担 $-$ 送端承担 (kgCO$_2$/kWh)")
+    save_fig(fig, OUT / "fig_q2_loss_convention_diff.png")
     plt.close(fig)
 
 
-def main() -> None:
+def main(n_bootstrap: int = 500, seed: int = 20250822,
+         propagate_q3: bool = False) -> None:
     rm, cm, ef_local, ef_ext = load_inputs()
     rho_m, mix_m, impshare_m = run_tracing(rm, cm, ef_local, ef_ext, "sender")
     rho_recv, _, _ = run_tracing(rm, cm, ef_local, ef_ext, "receiver")
     resp = responsibility(rm, cm, ef_local, ef_ext, rho_m)
     summary = export(rm, rho_m, rho_recv, mix_m, impshare_m, resp)
-    make_plots(rho_m, rho_recv, OUT / "q2_origin_mix_annual.csv", resp)
+    make_plots(rho_m, rho_recv, OUT / "q2_origin_mix_annual.csv", resp,
+               mix_m=mix_m)
     print(f"[Q2] 责任守恒相对误差: {summary['责任守恒相对误差']:.3e}")
     print("[Q2] 2025 区域终端碳强度:", summary["2025区域终端碳强度"])
     print(resp[["区域", "扩展生产责任P+", "消费责任全口径C+",
                 "共担责任(λ=0.5)"]].round(1).to_string(index=False))
+    if n_bootstrap > 0:
+        from .uncertainty import run_conditional_bootstrap
+
+        boot = run_conditional_bootstrap(
+            rm, cm, ef_local, ef_ext, n_samples=n_bootstrap, seed=seed)
+        print("[Q2-bootstrap] 最大责任守恒相对误差:",
+              f"{boot['maximum_carbon_conservation_relative_error']:.3e}")
+        mcse = boot["final_batch_quantile_endpoint_max_mcse_kg_per_kWh"]
+        print("[Q2-bootstrap] 最终分位端点最大 MCSE:",
+              f"{mcse:.5g}" if mcse is not None else "样本过少，未估计")
+    if propagate_q3:
+        from .uncertainty import propagate_q3_cap_risk
+
+        risk = propagate_q3_cap_risk()
+        if risk is not None:
+            print("[Q2→Q3] 推荐固定方案条件超限概率:\n",
+                  risk[["年份", "条件超限概率"]].to_string(index=False))
     print(f"[Q2] 输出目录: {OUT}")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Q2 碳流追踪与条件不确定性传播")
+    parser.add_argument("--bootstrap-samples", type=int, default=500,
+                        help="条件参数自举成功样本数；0 表示跳过")
+    parser.add_argument("--seed", type=int, default=20250822)
+    parser.add_argument("--q3-risk", action="store_true",
+                        help="显式读取已有 Q3 推荐方案做固定计划达标风险传播")
+    args = parser.parse_args()
+    main(n_bootstrap=args.bootstrap_samples, seed=args.seed,
+         propagate_q3=args.q3_risk)

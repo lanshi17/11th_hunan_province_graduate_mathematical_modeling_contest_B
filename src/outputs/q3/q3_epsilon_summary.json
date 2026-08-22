@@ -1,0 +1,158 @@
+{
+  "method": "lexicographic(shortage -> investment -> max relative regional excess)",
+  "epsilon_grid": [
+    0.0,
+    0.005,
+    0.01,
+    0.02,
+    0.05
+  ],
+  "recommended_epsilon": 0.01,
+  "stage1_shortage_GWh": 0.0,
+  "stage1_solver": {
+    "solver": "appsi_highs",
+    "status": "ok",
+    "termination": "optimal",
+    "lower_bound": 0.0,
+    "upper_bound": -2.6827429167042283e-12,
+    "relative_gap": 2.6827429167042283e-12
+  },
+  "stage2_minimum_investment_Cstar_million": 964.9697069976821,
+  "stage2_solver": {
+    "solver": "appsi_highs",
+    "status": "ok",
+    "termination": "optimal",
+    "lower_bound": 964.9697069976821,
+    "upper_bound": 964.9697069976821,
+    "relative_gap": 0.0
+  },
+  "weighted_baseline": {
+    "总投资_百万元": 973.9,
+    "区域预算超额罚_百万元": 915.1,
+    "目标函数_百万元": 1912.9,
+    "入选项目数": 7,
+    "碳排放全部达标": true,
+    "通道升级": [],
+    "最大区域相对预算超额R": 0.08280801671320616,
+    "区域预算超额合计_kt": 4575.58
+  },
+  "recommended": {
+    "investment_million": 974.6027927810314,
+    "investment_increase_vs_Cstar_percent": 0.9982785691087459,
+    "max_relative_budget_excess": 0.07611186844341519,
+    "total_budget_excess_kt": 4631.89,
+    "selected_projects": 6,
+    "constraint_audit": {
+      "energy_balance_violation": 2.0463630789890885e-12,
+      "supply_constraint_violation": 9.094947017729282e-13,
+      "carbon_cap_violation": 0.0,
+      "annual_investment_violation": 0.0,
+      "resource_constraint_violation": 5.329070518200751e-15,
+      "project_constraint_violation": 0.0,
+      "flow_constraint_violation": 0.0,
+      "shortage_stage_violation": 0.0,
+      "epsilon_investment_violation": 0.0,
+      "fairness_bound_violation": 0.0,
+      "max_constraint_violation": 2.0463630789890885e-12,
+      "max_variable_bound_violation": 0.0,
+      "max_integrality_violation": 0.0,
+      "passed": true
+    },
+    "solver": {
+      "fairness_stage": {
+        "solver": "appsi_highs",
+        "status": "ok",
+        "termination": "optimal",
+        "lower_bound": 0.0761018684434152,
+        "upper_bound": 0.0761018684434152,
+        "relative_gap": 0.0
+      },
+      "tie_break_stage": {
+        "solver": "appsi_highs",
+        "status": "ok",
+        "termination": "optimal",
+        "lower_bound": 974.6027927810314,
+        "upper_bound": 974.6027927810314,
+        "relative_gap": 0.0
+      }
+    }
+  },
+  "all_epsilon_constraints_pass": true,
+  "pareto": [
+    {
+      "epsilon": 0.0,
+      "epsilon_percent": 0.0,
+      "最优缺供_GWh": 0.0,
+      "最小投资Cstar_百万元": 964.9697069976821,
+      "投资容许上限_百万元": 964.9697069976821,
+      "实际投资_百万元": 964.9697069976821,
+      "相对Cstar增投_百分比": 0.0,
+      "最大区域相对预算超额R": 0.08377232301179319,
+      "区域预算超额合计_kt": 4676.56,
+      "入选项目数": 6,
+      "MILP状态": "optimal",
+      "MILP_gap": 0.0,
+      "约束回代通过": true
+    },
+    {
+      "epsilon": 0.005,
+      "epsilon_percent": 0.5,
+      "最优缺供_GWh": 0.0,
+      "最小投资Cstar_百万元": 964.9697069976821,
+      "投资容许上限_百万元": 969.7945555326704,
+      "实际投资_百万元": 969.7829104906921,
+      "相对Cstar增投_百分比": 0.4987932220157809,
+      "最大区域相对预算超额R": 0.07964260515919354,
+      "区域预算超额合计_kt": 4653.5199999999995,
+      "入选项目数": 7,
+      "MILP状态": "optimal",
+      "MILP_gap": 0.0,
+      "约束回代通过": true
+    },
+    {
+      "epsilon": 0.01,
+      "epsilon_percent": 1.0,
+      "最优缺供_GWh": 0.0,
+      "最小投资Cstar_百万元": 964.9697069976821,
+      "投资容许上限_百万元": 974.6194040676589,
+      "实际投资_百万元": 974.6027927810314,
+      "相对Cstar增投_百分比": 0.9982785691087459,
+      "最大区域相对预算超额R": 0.07611186844341519,
+      "区域预算超额合计_kt": 4631.89,
+      "入选项目数": 6,
+      "MILP状态": "optimal",
+      "MILP_gap": 0.0,
+      "约束回代通过": true
+    },
+    {
+      "epsilon": 0.02,
+      "epsilon_percent": 2.0,
+      "最优缺供_GWh": 0.0,
+      "最小投资Cstar_百万元": 964.9697069976821,
+      "投资容许上限_百万元": 984.2691011376357,
+      "实际投资_百万元": 984.2466477511591,
+      "相对Cstar增投_百分比": 1.9976731511555323,
+      "最大区域相对预算超额R": 0.07100479211727886,
+      "区域预算超额合计_kt": 4653.64,
+      "入选项目数": 7,
+      "MILP状态": "optimal",
+      "MILP_gap": 0.0,
+      "约束回代通过": true
+    },
+    {
+      "epsilon": 0.05,
+      "epsilon_percent": 5.0,
+      "最优缺供_GWh": 0.0,
+      "最小投资Cstar_百万元": 964.9697069976821,
+      "投资容许上限_百万元": 1013.2181923475663,
+      "实际投资_百万元": 1013.0399964266076,
+      "相对Cstar增投_百分比": 4.981533521760695,
+      "最大区域相对预算超额R": 0.06706782215616512,
+      "区域预算超额合计_kt": 4562.14,
+      "入选项目数": 8,
+      "MILP状态": "optimal",
+      "MILP_gap": 0.0,
+      "约束回代通过": true
+    }
+  ]
+}

@@ -25,6 +25,7 @@ import pyomo.environ as pyo
 
 from ..common import data_io
 from ..common.paths import CHANNELS, PLAN_YEARS, REGIONS, out_dir
+from ..common.plotting import savefig as save_fig
 from ..common.plotting import setup as plot_setup
 
 Q1 = out_dir("q1")
@@ -35,6 +36,8 @@ EF_PV = 0.045                    # 光伏排放因子 kgCO2/kWh(附件3A)
 CARBON_PENALTY = 0.2             # 区域预算超额罚 百万元/ktCO2(≈200元/t)
 VOLL = 10.0                      # 缺供罚 百万元/GWh(≈10元/kWh)
 EPS_FLOW = 1e-4                  # 流量微小成本,消除退化环流
+EPSILON_GRID = (0.0, 0.005, 0.01, 0.02, 0.05)
+LEX_ABS_TOL = 1e-5              # 词典序前级目标固定容差
 # 预算分配惯性权重:2026 年 0.85 线性过渡至 2030 年 0.65
 # ("祖父份额→公平份额"的动态混合,Raupach 2014; Zhou & Wang 2016)
 W_INERTIA = {2026: 0.85, 2027: 0.80, 2028: 0.75, 2029: 0.70, 2030: 0.65}
@@ -115,7 +118,8 @@ class Params:
 
 def build_model(pa: Params, inv_scale: float = 1.0,
                 cap_scale: float = 1.0, carbon_penalty: float | None = None,
-                voll: float | None = None, discount: float = 0.0
+                voll: float | None = None, discount: float = 0.0,
+                resource_scale: float = 1.0
                 ) -> pyo.ConcreteModel:
     m = pyo.ConcreteModel("Q3")
     Y, P, R, E = pa.years, pa.projects, pa.regions, pa.channels
@@ -149,7 +153,7 @@ def build_model(pa: Params, inv_scale: float = 1.0,
                              rule=lambda m, k, t: sum(
                                  pa.rneed[p] * m.x[p, t] for p in P
                                  if pa.rtype[p] == k)
-                             <= float(pa.res_lim.loc[t, {
+                             <= resource_scale * float(pa.res_lim.loc[t, {
                                  "C1": "C1工业改造", "C2": "C2建筑改造",
                                  "C3": "C3交通电气化", "C4": "C4分布式光伏",
                                  "C5": "C5输电升级"}[k]]))
@@ -298,6 +302,106 @@ def solve(m: pyo.ConcreteModel, allow_infeasible: bool = False) -> float | None:
     return float(pyo.value(m.obj))
 
 
+def solve_with_info(m: pyo.ConcreteModel) -> tuple[float, dict]:
+    """求解并返回可审计的 MILP 状态、上下界与 gap。
+
+    与 ``solve`` 分开以保持 Q4 等现有调用者的返回值兼容。
+    """
+    opt = pyo.SolverFactory("appsi_highs")
+    try:
+        opt.config.mip_gap = 1e-7
+    except Exception:
+        pass
+    res = opt.solve(m)
+    status = str(res.solver.status)
+    termination = str(res.solver.termination_condition)
+    if "optimal" not in termination.lower():
+        raise AssertionError(f"status={status}, termination={termination}")
+
+    def number(value):
+        try:
+            out = float(value)
+            return out if np.isfinite(out) else None
+        except (TypeError, ValueError):
+            return None
+
+    lower = number(getattr(res.problem, "lower_bound", None))
+    upper = number(getattr(res.problem, "upper_bound", None))
+    gap = None
+    if lower is not None and upper is not None:
+        gap = abs(upper - lower) / max(1.0, abs(upper))
+    value = float(pyo.value(next(m.component_data_objects(
+        pyo.Objective, active=True))))
+    return value, {
+        "solver": "appsi_highs",
+        "status": status,
+        "termination": termination,
+        "lower_bound": lower,
+        "upper_bound": upper,
+        "relative_gap": gap,
+    }
+
+
+def _investment_expr(pa: Params, m: pyo.ConcreteModel):
+    """未折现实物投资，与附件 5C 年度上限同口径。"""
+    return sum(pa.inv[p] * m.x[p, y]
+               for p in pa.projects for y in pa.years)
+
+
+def _shortage_expr(pa: Params, m: pyo.ConcreteModel):
+    return sum(m._dfinal(i, y) - m.served[i, y]
+               for i in pa.regions for y in pa.years)
+
+
+def _replace_objective(m: pyo.ConcreteModel, name: str, expr) -> None:
+    for obj in m.component_objects(pyo.Objective, active=True):
+        obj.deactivate()
+    m.add_component(name, pyo.Objective(expr=expr))
+
+
+def constraint_audit(m: pyo.ConcreteModel, tol: float = 1e-5) -> dict:
+    """脱离求解器状态，逐条回代所有活动约束、变量边界与整数性。"""
+    component_max: dict[str, float] = {}
+    max_constraint = 0.0
+    n_constraints = 0
+    for con in m.component_data_objects(pyo.Constraint, active=True):
+        body = float(pyo.value(con.body))
+        violation = 0.0
+        if con.lower is not None:
+            violation = max(violation, float(pyo.value(con.lower)) - body)
+        if con.upper is not None:
+            violation = max(violation, body - float(pyo.value(con.upper)))
+        violation = max(0.0, violation)
+        key = con.parent_component().local_name
+        component_max[key] = max(component_max.get(key, 0.0), violation)
+        max_constraint = max(max_constraint, violation)
+        n_constraints += 1
+
+    max_bound = 0.0
+    max_integrality = 0.0
+    n_variables = 0
+    for var in m.component_data_objects(pyo.Var, active=True):
+        value = float(pyo.value(var))
+        if var.lb is not None:
+            max_bound = max(max_bound, float(pyo.value(var.lb)) - value)
+        if var.ub is not None:
+            max_bound = max(max_bound, value - float(pyo.value(var.ub)))
+        if var.is_integer():
+            max_integrality = max(max_integrality, abs(value - round(value)))
+        n_variables += 1
+    max_bound = max(0.0, max_bound)
+    return {
+        "n_constraints": n_constraints,
+        "n_variables": n_variables,
+        "max_constraint_violation": max_constraint,
+        "max_variable_bound_violation": max_bound,
+        "max_integrality_violation": max_integrality,
+        "component_max": component_max,
+        "passed": (max_constraint <= tol and max_bound <= tol
+                   and max_integrality <= tol),
+    }
+
+
 def extract(pa: Params, m: pyo.ConcreteModel) -> dict:
     Y, P, R = pa.years, pa.projects, pa.regions
     sched = []
@@ -336,16 +440,265 @@ def extract(pa: Params, m: pyo.ConcreteModel) -> dict:
     regional = []
     for i in R:
         for y in Y:
+            grid_exposure = float(pyo.value(
+                m._dfinal(i, y) - m._clean(i, y)))
+            fixed_emission = float(pyo.value(
+                EF_PV * m._clean(i, y) - m._abate(i, y)))
             regional.append(dict(
                 区域=i, 年份=y,
                 净需求_GWh=round(pyo.value(m._dfinal(i, y)), 1),
                 光伏供电_GWh=round(pyo.value(m._clean(i, y)), 1),
+                碳强度作用电量_GWh=grid_exposure,
+                与碳强度无关排放项_kt=fixed_emission,
+                消费碳_精确kt=float(pyo.value(m._emis(i, y))),
                 消费碳_kt=round(pyo.value(m._emis(i, y)), 1),
                 区域预算_kt=round(pa.budget[i, y], 1),
                 预算超额_kt=round(pyo.value(m.bex[i, y]), 2),
                 省外输入_GWh=round(pyo.value(m.imp[i, y]), 1)))
     return dict(sched=sched_df, yearly=yearly_df,
                 regional=pd.DataFrame(regional))
+
+
+def _extract_epsilon(pa: Params, m: pyo.ConcreteModel) -> tuple[dict, dict]:
+    """导出 epsilon 方案；区域超额由排放公式独立重算。"""
+    result = extract(pa, m)
+    regional = result["regional"].copy()
+    actual_excess = []
+    relative_excess = []
+    for _, row in regional.iterrows():
+        i, y = row["区域"], int(row["年份"])
+        emission = float(pyo.value(m._emis(i, y)))
+        budget = float(pa.budget[i, y])
+        excess = max(0.0, emission - budget)
+        actual_excess.append(round(excess, 2))
+        relative_excess.append(excess / budget)
+    regional["预算超额_kt"] = actual_excess
+    regional["相对预算超额"] = np.round(relative_excess, 6)
+    result["regional"] = regional
+
+    yearly = result["yearly"].copy()
+    by_year = regional.groupby("年份")["预算超额_kt"].sum()
+    yearly["区域预算超额合计_kt"] = [round(float(by_year[y]), 1)
+                                          for y in yearly["年份"]]
+    result["yearly"] = yearly
+    metrics = {
+        "shortage": float(pyo.value(_shortage_expr(pa, m))),
+        "investment": float(pyo.value(_investment_expr(pa, m))),
+        "max_relative_excess": float(max(relative_excess, default=0.0)),
+        "total_budget_excess": float(sum(actual_excess)),
+        "selected_projects": int(result["sched"]["项目"].nunique()),
+    }
+    return result, metrics
+
+
+def _semantic_audit(pa: Params, m: pyo.ConcreteModel, shortage_star: float,
+                    investment_limit: float, max_relative_excess: float,
+                    generic: dict) -> dict:
+    """按业务含义独立重算供能、碳、投资和资源边界。"""
+    comp = generic["component_max"]
+    actual_shortage = float(pyo.value(_shortage_expr(pa, m)))
+    actual_investment = float(pyo.value(_investment_expr(pa, m)))
+    carbon_violation = max(
+        max(0.0, sum(float(pyo.value(m._emis(i, y))) for i in pa.regions)
+            - pa.cap_total[y]) for y in pa.years)
+    annual_investment_violation = max(
+        max(0.0, sum(pa.inv[p] * float(pyo.value(m.x[p, y]))
+                     for p in pa.projects)
+            - float(pa.res_lim.loc[y, "年度投资上限(百万元)"]))
+        for y in pa.years)
+    relative_excess = max(
+        max(0.0, (float(pyo.value(m._emis(i, y))) - pa.budget[i, y])
+            / pa.budget[i, y])
+        for i in pa.regions for y in pa.years)
+    audit = {
+        "energy_balance_violation": comp.get("c_bal", 0.0),
+        "supply_constraint_violation": max(comp.get("c_smin", 0.0),
+                                           comp.get("c_smax", 0.0)),
+        "carbon_cap_violation": carbon_violation,
+        "annual_investment_violation": annual_investment_violation,
+        "resource_constraint_violation": comp.get("c_res", 0.0),
+        "project_constraint_violation": max(
+            comp.get("c_tot", 0.0), comp.get("c_start", 0.0),
+            comp.get("c_mut", 0.0), comp.get("c_syn", 0.0)),
+        "flow_constraint_violation": max(
+            comp.get("c_fcap", 0.0), comp.get("c_mc", 0.0)),
+        "shortage_stage_violation": max(
+            0.0, actual_shortage - shortage_star - LEX_ABS_TOL),
+        "epsilon_investment_violation": max(
+            0.0, actual_investment - investment_limit - LEX_ABS_TOL),
+        "fairness_bound_violation": max(
+            0.0, relative_excess - max_relative_excess - LEX_ABS_TOL),
+        "max_constraint_violation": generic["max_constraint_violation"],
+        "max_variable_bound_violation": generic["max_variable_bound_violation"],
+        "max_integrality_violation": generic["max_integrality_violation"],
+    }
+    audit["passed"] = bool(generic["passed"] and max(audit.values()) <= 1e-5)
+    return audit
+
+
+def _plot_epsilon_pareto(pareto: pd.DataFrame) -> None:
+    import matplotlib.pyplot as plt
+
+    plot_setup()
+    fig, ax = plt.subplots(figsize=(7.2, 4.0))
+    x = pareto["实际投资_百万元"]
+    y = 100 * pareto["最大区域相对预算超额R"]
+    ax.scatter(x, y, s=46, color="#0072B2", zorder=3,
+               edgecolors="white", linewidths=0.4)
+    for _, row in pareto.iterrows():
+        label = rf"$\varepsilon={row['epsilon_percent']:.1f}\%$"
+        offset = (-72, 8) if np.isclose(row["epsilon"], pareto["epsilon"].max()) \
+            else (4, 5)
+        ax.annotate(label,
+                    (row["实际投资_百万元"],
+                     100 * row["最大区域相对预算超额R"]),
+                    xytext=offset, textcoords="offset points", fontsize=8)
+    recommended = pareto[np.isclose(pareto["epsilon"], 0.01)].iloc[0]
+    ax.scatter([recommended["实际投资_百万元"]],
+               [100 * recommended["最大区域相对预算超额R"]],
+               marker="*", s=130, color="#d62728", zorder=4,
+               label=r"推荐 $\varepsilon=1\%$")
+    ax.set_xlabel("五年总投资（百万元）")
+    ax.set_ylabel(r"最大区域相对预算超额（\%）")
+    ax.margins(x=0.05, y=0.08)
+    ax.legend(fontsize=8)
+    save_fig(fig, OUT / "fig_q3_epsilon_pareto.png")
+    plt.close(fig)
+
+
+def run_epsilon_pareto(pa: Params, baseline: dict,
+                       eps_grid: tuple[float, ...] = EPSILON_GRID) -> dict:
+    """三级词典序：缺供→投资→epsilon成本域内最大相对超额。"""
+    # 第一级：在全部物理和碳硬约束下最小化缺供。
+    m_short = build_model(pa, carbon_penalty=0.0, voll=0.0)
+    _replace_objective(m_short, "lex_shortage_obj", _shortage_expr(pa, m_short))
+    _, shortage_info = solve_with_info(m_short)
+    shortage_star = max(0.0, float(pyo.value(_shortage_expr(pa, m_short))))
+
+    # 第二级：固定最优缺供后求最小未折现投资 C*。
+    m_invest = build_model(pa, carbon_penalty=0.0, voll=0.0)
+    m_invest.lex_shortage_bound = pyo.Constraint(
+        expr=_shortage_expr(pa, m_invest) <= shortage_star + LEX_ABS_TOL)
+    _replace_objective(m_invest, "lex_investment_obj",
+                       _investment_expr(pa, m_invest))
+    _, investment_info = solve_with_info(m_invest)
+    c_star = float(pyo.value(_investment_expr(pa, m_invest)))
+
+    pareto_rows: list[dict] = []
+    validation_rows: list[dict] = []
+    all_results: dict[float, dict] = {}
+    all_metrics: dict[float, dict] = {}
+    all_audits: dict[float, dict] = {}
+    all_solver_info: dict[float, dict] = {}
+
+    for eps in eps_grid:
+        investment_limit = (1.0 + eps) * c_star
+        m = build_model(pa, carbon_penalty=0.0, voll=0.0)
+        m.lex_shortage_bound = pyo.Constraint(
+            expr=_shortage_expr(pa, m) <= shortage_star + LEX_ABS_TOL)
+        m.epsilon_investment_bound = pyo.Constraint(
+            expr=_investment_expr(pa, m) <= investment_limit + LEX_ABS_TOL)
+        m.max_relative_excess = pyo.Var(domain=pyo.NonNegativeReals)
+        m.relative_budget_bounds = pyo.ConstraintList()
+        for i in pa.regions:
+            for y in pa.years:
+                m.relative_budget_bounds.add(
+                    m._emis(i, y) - pa.budget[i, y]
+                    <= pa.budget[i, y] * m.max_relative_excess)
+        _replace_objective(m, "lex_fairness_obj", m.max_relative_excess)
+        _, fairness_info = solve_with_info(m)
+        r_star = float(pyo.value(m.max_relative_excess))
+
+        # 固定公平最优值，在其解集中取投资最小的可复现方案。
+        m.lex_fairness_bound = pyo.Constraint(
+            expr=m.max_relative_excess <= r_star + LEX_ABS_TOL)
+        _replace_objective(m, "lex_fair_tiebreak_obj", _investment_expr(pa, m))
+        _, final_info = solve_with_info(m)
+
+        result, metrics = _extract_epsilon(pa, m)
+        generic = constraint_audit(m)
+        audit = _semantic_audit(
+            pa, m, shortage_star, investment_limit,
+            r_star, generic)
+        all_results[eps] = result
+        all_metrics[eps] = metrics
+        all_audits[eps] = audit
+        all_solver_info[eps] = {
+            "fairness_stage": fairness_info,
+            "tie_break_stage": final_info,
+        }
+
+        pareto_rows.append({
+            "epsilon": eps,
+            "epsilon_percent": 100 * eps,
+            "最优缺供_GWh": shortage_star,
+            "最小投资Cstar_百万元": c_star,
+            "投资容许上限_百万元": investment_limit,
+            "实际投资_百万元": metrics["investment"],
+            "相对Cstar增投_百分比": 100 * (metrics["investment"] / c_star - 1),
+            "最大区域相对预算超额R": metrics["max_relative_excess"],
+            "区域预算超额合计_kt": metrics["total_budget_excess"],
+            "入选项目数": metrics["selected_projects"],
+            "MILP状态": final_info["termination"],
+            "MILP_gap": final_info["relative_gap"],
+            "约束回代通过": audit["passed"],
+        })
+        validation_rows.append({
+            "epsilon": eps,
+            "epsilon_percent": 100 * eps,
+            "solver_status": final_info["status"],
+            "termination": final_info["termination"],
+            "relative_gap": final_info["relative_gap"],
+            **audit,
+        })
+
+    pareto = pd.DataFrame(pareto_rows)
+    pareto.to_csv(OUT / "q3_epsilon_pareto.csv", index=False,
+                  encoding="utf-8-sig")
+    validation = pd.DataFrame(validation_rows)
+    validation.to_csv(OUT / "q3_epsilon_validation.csv", index=False,
+                      encoding="utf-8-sig")
+
+    recommended_eps = 0.01
+    recommended = all_results[recommended_eps]
+    recommended["sched"].to_csv(
+        OUT / "q3_epsilon_recommended_schedule.csv", index=False,
+        encoding="utf-8-sig")
+    recommended["yearly"].to_csv(
+        OUT / "q3_epsilon_recommended_yearly.csv", index=False,
+        encoding="utf-8-sig")
+    recommended["regional"].to_csv(
+        OUT / "q3_epsilon_recommended_regional.csv", index=False,
+        encoding="utf-8-sig")
+
+    rec_metrics = all_metrics[recommended_eps]
+    summary = {
+        "method": "lexicographic(shortage -> investment -> max relative regional excess)",
+        "epsilon_grid": list(eps_grid),
+        "recommended_epsilon": recommended_eps,
+        "stage1_shortage_GWh": shortage_star,
+        "stage1_solver": shortage_info,
+        "stage2_minimum_investment_Cstar_million": c_star,
+        "stage2_solver": investment_info,
+        "weighted_baseline": baseline,
+        "recommended": {
+            "investment_million": rec_metrics["investment"],
+            "investment_increase_vs_Cstar_percent":
+                100 * (rec_metrics["investment"] / c_star - 1),
+            "max_relative_budget_excess": rec_metrics["max_relative_excess"],
+            "total_budget_excess_kt": rec_metrics["total_budget_excess"],
+            "selected_projects": rec_metrics["selected_projects"],
+            "constraint_audit": all_audits[recommended_eps],
+            "solver": all_solver_info[recommended_eps],
+        },
+        "all_epsilon_constraints_pass": bool(
+            all(a["passed"] for a in all_audits.values())),
+        "pareto": pareto.to_dict("records"),
+    }
+    with open(OUT / "q3_epsilon_summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, ensure_ascii=False, indent=2)
+    _plot_epsilon_pareto(pareto)
+    return summary
 
 
 def merit_order(pa: Params) -> pd.DataFrame:
@@ -413,41 +766,88 @@ def sensitivity(pa: Params) -> pd.DataFrame:
 def make_plots(res: dict, merit: pd.DataFrame) -> None:
     import matplotlib.pyplot as plt
 
+    from ..common.advanced_plots import annotated_heatmap, gantt, lollipop_h
+
     plot_setup()
 
     y = res["yearly"]
-    fig, ax1 = plt.subplots(figsize=(7.2, 4))
-    ax1.plot(y["年份"], y["消费侧碳排放_kt"], "o-", label="优化后消费侧碳排放")
-    ax1.plot(y["年份"], y["碳上限_kt"], "s--", color="crimson", label="年度碳上限")
-    ax1.set_ylabel(r"ktCO$_2$")
-    ax1.set_title("五年方案:消费侧碳排放轨迹与年度上限")
-    ax1.legend(loc="upper right")
-    ax2 = ax1.twinx()
-    ax2.bar(y["年份"], y["投资_百万元"], alpha=0.25, color="gray", width=0.5)
-    ax2.set_ylabel("年度投资(百万元)")
-    ax2.grid(False)
-    fig.savefig(OUT / "fig_q3_carbon_trajectory.png")
+    mat = np.vstack([
+        y["消费侧碳排放_kt"].to_numpy(float) - y["碳上限_kt"].to_numpy(float),
+        y["投资_百万元"].to_numpy(float),
+    ])
+    fig, axes = plt.subplots(2, 1, figsize=(7.2, 4.2), sharex=True)
+    im0 = annotated_heatmap(
+        axes[0], mat[0:1], [str(v) for v in y["年份"]], [r"$E-\bar E$"],
+        cmap="RdBu_r", fmt=".0f",
+        vmin=-float(np.abs(mat[0]).max() or 1),
+        vmax=float(np.abs(mat[0]).max() or 1))
+    fig.colorbar(im0, ax=axes[0], shrink=0.85).set_label(r"相对上限 ktCO$_2$")
+    im1 = annotated_heatmap(
+        axes[1], mat[1:2], [str(v) for v in y["年份"]], ["投资"],
+        cmap="YlOrRd", fmt=".0f")
+    fig.colorbar(im1, ax=axes[1], shrink=0.85).set_label("百万元")
+    axes[1].set_xlabel("年份")
+    save_fig(fig, OUT / "fig_q3_carbon_trajectory.png")
     plt.close(fig)
 
     s = res["sched"]
-    piv = s.pivot_table(index="项目", columns="开工年", values="开工规模",
-                        aggfunc="sum").fillna(0)
-    fig, ax = plt.subplots(figsize=(7, max(3.0, 0.3 * len(piv))))
-    im = ax.imshow(piv.to_numpy(), cmap="YlGnBu", aspect="auto")
-    ax.set_xticks(range(len(piv.columns)), piv.columns)
-    ax.set_yticks(range(len(piv)), piv.index)
-    ax.set_title("项目开工规模安排(单位:各自规模单位)")
-    fig.colorbar(im, ax=ax, shrink=0.8)
-    fig.savefig(OUT / "fig_q3_schedule.png")
+    kind_color = {
+        "交通工具电气化": "#0072B2",
+        "分布式光伏建设": "#E69F00",
+        "工业设备节能改造": "#009E73",
+        "公共建筑节能改造": "#56B4E9",
+    }
+    rows = [(f"{row['项目']} {row['区域']}", int(row["开工年"]),
+             float(row["开工规模"]), row["名称"])
+            for _, row in s.iterrows()]
+    fig, ax = plt.subplots(figsize=(7.2, 4.0))
+    gantt(ax, rows, PLAN_YEARS,
+          color_of=lambda k: kind_color.get(k, "#7f7f7f"))
+    ax.set_xlabel("开工年")
+    handles = [plt.Rectangle((0, 0), 1, 1, color=c, alpha=0.7)
+               for c in ("#0072B2", "#E69F00")]
+    ax.legend(handles, ["交通电气化", "分布式光伏"], fontsize=8,
+              loc="lower right")
+    save_fig(fig, OUT / "fig_q3_schedule.png")
     plt.close(fig)
 
     top = merit.head(12).iloc[::-1]
-    fig, ax = plt.subplots(figsize=(7, 4.4))
-    ax.barh(top["项目"] + " " + top["区域"], top["单位减排成本_百万元每kt年"])
+    fig, ax = plt.subplots(figsize=(7.2, 4.4))
+    lollipop_h(ax, top["项目"] + " " + top["区域"],
+               top["单位减排成本_百万元每kt年"], color="#0072B2")
     ax.set_xlabel(r"单位减排成本(百万元 / ktCO$_2\cdot$年,2030 口径)")
-    ax.set_title("候选项目单位减排成本排序(前 12)")
-    fig.savefig(OUT / "fig_q3_merit_order.png")
+    save_fig(fig, OUT / "fig_q3_merit_order.png")
     plt.close(fig)
+
+    regional = res.get("regional")
+    if regional is None and (OUT / "q3_regional.csv").exists():
+        regional = pd.read_csv(OUT / "q3_regional.csv")
+    if regional is not None:
+        piv = (regional.pivot_table(index="区域", columns="年份",
+                                    values="预算超额_kt", aggfunc="sum")
+               .reindex(index=REGIONS, columns=PLAN_YEARS).fillna(0))
+        fig, ax = plt.subplots(figsize=(7.2, 3.6))
+        vmax = float(np.abs(piv.to_numpy()).max()) or 1.0
+        im = ax.imshow(piv.to_numpy(float), cmap="RdBu_r", aspect="auto",
+                       interpolation="nearest", vmin=0, vmax=vmax)
+        ax.set_xticks(range(len(PLAN_YEARS)), PLAN_YEARS)
+        ax.set_yticks(range(len(REGIONS)), REGIONS)
+        ax.grid(False)
+        for i in range(piv.shape[0]):
+            for j in range(piv.shape[1]):
+                v = float(piv.iloc[i, j])
+                if v <= 0:
+                    continue
+                ax.text(j, i, f"{v:.0f}", ha="center", va="center",
+                        fontsize=7, color="white" if v > 0.55 * vmax else "black")
+        cbar = fig.colorbar(im, ax=ax, shrink=0.85)
+        cbar.set_label(r"区域软预算超额 ktCO$_2$")
+        save_fig(fig, OUT / "fig_q3_budget_gap.png")
+        plt.close(fig)
+
+    ep_path = OUT / "q3_epsilon_pareto.csv"
+    if ep_path.exists():
+        _plot_epsilon_pareto(pd.read_csv(ep_path))
 
 
 def main() -> None:
@@ -490,8 +890,26 @@ def main() -> None:
     )
     with open(OUT / "q3_summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
+    _, baseline_metrics = _extract_epsilon(pa, m)
+    epsilon_baseline = {
+        **summary,
+        "最大区域相对预算超额R":
+            baseline_metrics["max_relative_excess"],
+        "区域预算超额合计_kt": baseline_metrics["total_budget_excess"],
+    }
+    epsilon_summary = run_epsilon_pareto(pa, baseline=epsilon_baseline)
+    # 若 Q2 已生成条件自举样本，则在推荐 epsilon 方案落盘后立即回代其
+    # 年度碳上限风险；这是固定计划评估，不对每个样本事后重新优化。
+    from ..q2_carbonflow.uncertainty import propagate_q3_cap_risk
+    cap_risk = propagate_q3_cap_risk()
     make_plots(dict(**res, sens=sens), merit)
     print("[Q3] summary:", summary)
+    print("[Q3-epsilon] C*=",
+          round(epsilon_summary["stage2_minimum_investment_Cstar_million"], 3),
+          "recommended=", epsilon_summary["recommended"])
+    if cap_risk is not None:
+        print("[Q2→Q3] 推荐固定方案条件超限概率:\n",
+              cap_risk[["年份", "条件超限概率"]].to_string(index=False))
     print(f"[Q3] 输出目录: {OUT}")
 
 

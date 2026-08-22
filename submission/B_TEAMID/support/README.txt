@@ -7,7 +7,7 @@
     python3.12 -m venv .venv
     .venv/bin/python -m pip install -r requirements.txt
     .venv/bin/python -m src.q1_reconcile.main
-    .venv/bin/python -m src.q2_carbonflow.main
+    .venv/bin/python -m src.q2_carbonflow.main --bootstrap-samples 500
     .venv/bin/python -m src.q3_portfolio.main
     .venv/bin/python -m src.q4_robust.main
     .venv/bin/python -m src.q5_report.main
@@ -19,4 +19,4 @@
 论文源：paper/main.tex（XeLaTeX）。
 绘图：SciencePlots + XeLaTeX（需 TeX Live，含 ctex）。
 
-求解器：Clarabel（Q1 QP）、HiGHS（Q3/Q4 MILP）。
+求解器：Clarabel（Q1 凸 Huber 调和）、HiGHS（Q3/Q4 MILP）。

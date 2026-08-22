@@ -1,0 +1,52 @@
+{
+  "method": "conditional parametric bootstrap through full Q1 reconciliation",
+  "seed": 20250822,
+  "requested_samples": 500,
+  "successful_samples": 500,
+  "attempts": 500,
+  "failed_attempts": 0,
+  "observation_generation_assumption": "conditionally independent Gaussian measurement errors, truncated at zero, with the original missingness and structural-zero pattern",
+  "fixed_inputs": [
+    "2025 emission factors",
+    "network topology",
+    "engineering-loss prior",
+    "measurement precision model"
+  ],
+  "not_used_as_2025_distribution": "Attachment 6 future factor intervals",
+  "maximum_carbon_conservation_relative_error": 4.0309454375999953e-16,
+  "maximum_energy_balance_residual_GWh": 1.0084998157758318e-12,
+  "minimum_node_total_inflow_Q_GWh": 269.4928770296746,
+  "maximum_carbon_system_condition_number": 6.6060389960910655,
+  "maximum_origin_share_row_sum_error": 4.440892098500626e-16,
+  "maximum_annual_median_shift_vs_point_kg_per_kWh": 0.00047185940892316425,
+  "half_sample_quantile_endpoint_change_vs_final_kg_per_kWh": 0.0003138090388428161,
+  "final_batch_quantile_endpoint_max_mcse_kg_per_kWh": 0.00011980145040647751,
+  "highest_region_probabilities": {
+    "A1": 0.0,
+    "A2": 0.0,
+    "A3": 0.0,
+    "A4": 1.0,
+    "A5": 0.0,
+    "A6": 0.0,
+    "A7": 0.0,
+    "A8": 0.0
+  },
+  "lowest_region_probabilities": {
+    "A1": 0.0,
+    "A2": 0.0,
+    "A3": 0.0,
+    "A4": 0.0,
+    "A5": 1.0,
+    "A6": 0.0,
+    "A7": 0.0,
+    "A8": 0.0
+  },
+  "interpretation": "intervals are conditional measurement-uncertainty intervals, not unconditional forecasts or confidence guarantees",
+  "q3_fixed_recommended_plan_cap_risk": {
+    "2026": 0.0,
+    "2027": 0.002,
+    "2028": 0.32,
+    "2029": 0.358,
+    "2030": 0.358
+  }
+}

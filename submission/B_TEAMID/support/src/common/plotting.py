@@ -1,4 +1,6 @@
 """SciencePlots + XeLaTeX（ctex，与论文 Times / 中宋一致）。"""
+from pathlib import Path
+
 import matplotlib
 
 matplotlib.use("pgf")
@@ -34,3 +36,13 @@ def setup() -> None:
         "savefig.dpi": 300,
         "savefig.bbox": "tight",
     })
+
+
+def savefig(fig, path) -> None:
+    """同时写出 PNG（论文预览）与 PDF（矢量印刷）。"""
+    p = Path(path)
+    fig.savefig(p)
+    try:
+        fig.savefig(p.with_suffix(".pdf"))
+    except Exception:
+        pass
