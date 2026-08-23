@@ -372,50 +372,102 @@ def level_deviation_forest(fig, labels, point, mid, lo, hi, *,
     mid = np.asarray(mid, float)
     lo = np.asarray(lo, float)
     hi = np.asarray(hi, float)
-    gs = fig.add_gridspec(1, 2, width_ratios=[1.05, 2.35], wspace=0.22)
-    ax_l = fig.add_subplot(gs[0, 0])
-    ax_r = fig.add_subplot(gs[0, 1])
+    n = len(labels)
+    # 右图不再重复类别名；色条跟在右图外侧，避免与纵轴文字抢中间缝。
+    outer = fig.add_gridspec(1, 2, width_ratios=[1.15, 2.65], wspace=0.28)
+    right = outer[0, 1].subgridspec(1, 2, width_ratios=[1.0, 0.032], wspace=0.10)
+    ax_l = fig.add_subplot(outer[0, 0])
+    ax_r = fig.add_subplot(right[0, 0])
+    cax = fig.add_subplot(right[0, 1])
+    ylim = (n - 0.5, -0.5)
 
     im = ax_l.imshow(point.reshape(-1, 1), cmap=cmap, aspect="auto",
                      interpolation="nearest")
     ax_l.set_xticks([])
-    ax_l.set_yticks(range(len(labels)), labels)
+    ax_l.set_yticks(range(n), labels)
+    ax_l.set_ylim(ylim)
+    ax_l.tick_params(axis="y", right=False)
     ax_l.grid(False)
     vmax = float(np.nanmax(np.abs(point))) or 1.0
     for i, v in enumerate(point):
         ax_l.text(0, i, format(v, level_fmt), ha="center", va="center",
                   fontsize=7,
                   color="white" if v > 0.55 * vmax else "black")
-    fig.colorbar(im, ax=ax_l, fraction=0.12, pad=0.04).set_label(level_label)
+    fig.colorbar(im, cax=cax).set_label(level_label)
 
-    y = np.arange(len(labels))
+    y = np.arange(n)
     ax_r.axvline(0.0, color="#666666", lw=0.7, zorder=0)
     ax_r.hlines(y, lo - point, hi - point, color="#0072B2", lw=2.0, zorder=1)
     ax_r.scatter(mid - point, y, s=34, color="#0072B2", zorder=3,
                  label=mid_label)
     ax_r.scatter(np.zeros_like(y), y, s=36, marker="x", color="#D55E00",
                  zorder=4, label=point_label)
-    ax_r.set_yticks(y, labels)
-    ax_r.invert_yaxis()
+    ax_r.set_yticks(y)
+    ax_r.set_ylim(ylim)
+    ax_r.tick_params(axis="y", left=False, labelleft=False)
     ax_r.set_xlabel(dev_label)
     ax_r.legend(fontsize=7, loc="best")
     return ax_l, ax_r
 
 
+def _em_width(text: str) -> float:
+    """粗估显示宽度：汉字 1 em，ASCII 0.55 em。"""
+    return float(sum(1.0 if ord(ch) > 127 else 0.55 for ch in text))
+
+
+def _treemap_lines(lab: str, max_em: float) -> list[str]:
+    """按 / 断行，使每行尽量不超过 max_em。"""
+    parts = [p for p in str(lab).split("/") if p]
+    if not parts:
+        return []
+    lines: list[str] = []
+    cur = parts[0]
+    for part in parts[1:]:
+        cand = f"{cur}/{part}"
+        if _em_width(cand) <= max_em:
+            cur = cand
+        else:
+            lines.append(cur)
+            cur = part
+    lines.append(cur)
+    return lines
+
+
 def treemap(ax, values, labels, colors=None):
-    """矩形树图。"""
+    """矩形树图。标签按块宽换行，放不下则不画，避免溢出图外。"""
     from matplotlib.patches import Rectangle
 
     values = np.asarray(values, float)
     values = np.maximum(values, 1e-12)
     colors = colors or [OKABE[i % len(OKABE)] for i in range(len(values))]
     rects = _squarify((values / values.sum() * 1.0).tolist(), 0.0, 0.0, 1.0, 1.0)
+    # 等比例轴约 2.5 in；按略宽字号估计，避免贴边。
+    em7 = (7.0 / 72.0) / 2.5
     for (x, y, w, h), lab, c in zip(rects, labels, colors):
-        ax.add_patch(Rectangle((x, y), w, h, facecolor=c, edgecolor="white",
-                               linewidth=1.0))
-        if w * h >= 0.03:
-            ax.text(x + 0.5 * w, y + 0.5 * h, lab, ha="center", va="center",
-                    fontsize=7)
+        rect = Rectangle((x, y), w, h, facecolor=c, edgecolor="white",
+                         linewidth=1.0)
+        ax.add_patch(rect)
+        pad = 0.024
+        inner_w, inner_h = w - 2.0 * pad, h - 2.0 * pad
+        if inner_w < 0.06 or inner_h < 0.045:
+            continue
+        fs, em = 7.0, em7
+        lines = _treemap_lines(lab, 0.82 * inner_w / em)
+        line_h = 1.22 * em
+        if lines and (len(lines) * line_h > inner_h
+                      or max(_em_width(s) for s in lines) * em > inner_w):
+            fs, em = 6.0, em7 * 6.0 / 7.0
+            lines = _treemap_lines(lab, 0.82 * inner_w / em)
+            line_h = 1.22 * em
+        if (not lines or len(lines) * line_h > inner_h
+                or max(_em_width(s) for s in lines) * em > inner_w):
+            continue
+        n = len(lines)
+        for i, line in enumerate(lines):
+            yy = y + 0.5 * h + (0.5 * (n - 1) - i) * line_h
+            txt = ax.text(x + 0.5 * w, yy, line, ha="center", va="center",
+                          fontsize=fs, clip_on=True)
+            txt.set_clip_path(rect.get_path(), rect.get_transform())
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
     ax.axis("off")

@@ -828,8 +828,16 @@ def make_plots(ds: Dataset, res: ReconcileResult | None, adj: pd.DataFrame,
 
     ranked = infl.sort_values("综合影响分数", ascending=False)
     fig, ax = plt.subplots(figsize=(7.2, 3.8))
-    short = [str(s).replace("年度", "").replace("电量", "")
-             for s in ranked["观测"]]
+    short = []
+    for s in ranked["观测"]:
+        lab = str(s).replace("年度", "")
+        for old, new in (("省外输入电量", "省外输入"), ("终端用电量", "终端用电"),
+                         ("发电量", ""), ("电量", "")):
+            lab = lab.replace(old, new)
+        if lab.startswith("2025-"):
+            month, _, tail = lab[5:].partition("/")
+            lab = f"{int(month)}月/{tail}"
+        short.append(lab)
     cmap = plt.cm.YlOrRd
     n = len(ranked)
     colors = [cmap(0.35 + 0.6 * (n - 1 - i) / max(n - 1, 1)) for i in range(n)]
